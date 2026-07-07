@@ -1,0 +1,6 @@
+fastapi
+uvicorn[standard]
+prometheus-fastapi-instrumentator
+structlog
+psycopg[binary]
+psycopg-pool

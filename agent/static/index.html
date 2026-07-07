@@ -1,0 +1,234 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Incident Investigator</title>
+<style>
+  :root {
+    --bg: #0f1117; --panel: #171a23; --border: #2a2e3a;
+    --text: #e6e8ee; --muted: #8b90a0; --accent: #5b8cff;
+    --ok: #3ecf8e; --warn: #f5a623; --err: #ef5757;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; font-family: -apple-system, "Segoe UI", Roboto, sans-serif;
+    background: var(--bg); color: var(--text);
+  }
+  header {
+    padding: 20px 28px; border-bottom: 1px solid var(--border);
+    display: flex; align-items: center; justify-content: space-between;
+  }
+  header h1 { font-size: 18px; margin: 0; font-weight: 600; }
+  #status-pill {
+    font-size: 13px; padding: 4px 10px; border-radius: 999px;
+    background: var(--panel); border: 1px solid var(--border); color: var(--muted);
+  }
+  #status-pill.faulted { color: var(--warn); border-color: var(--warn); }
+  main { max-width: 900px; margin: 0 auto; padding: 24px 28px 60px; }
+  section {
+    background: var(--panel); border: 1px solid var(--border);
+    border-radius: 10px; padding: 20px; margin-bottom: 20px;
+  }
+  section h2 { font-size: 14px; text-transform: uppercase; letter-spacing: .04em;
+    color: var(--muted); margin: 0 0 14px; }
+  .fault-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 10px; }
+  button {
+    font: inherit; padding: 10px 14px; border-radius: 8px; border: 1px solid var(--border);
+    background: #1e2230; color: var(--text); cursor: pointer; transition: border-color .15s;
+  }
+  button:hover:not(:disabled) { border-color: var(--accent); }
+  button:disabled { opacity: .5; cursor: not-allowed; }
+  button.primary { background: var(--accent); border-color: var(--accent); color: #fff; font-weight: 600; }
+  button.danger { color: var(--err); }
+  .row { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+  #investigate-row { margin-top: 6px; }
+  #spinner { display: none; color: var(--muted); font-size: 13px; }
+  #spinner.on { display: inline-block; }
+  pre {
+    background: #0b0d13; border: 1px solid var(--border); border-radius: 8px;
+    padding: 14px; overflow-x: auto; font-size: 13px; white-space: pre-wrap; word-break: break-word;
+  }
+  .pm-title { font-size: 16px; font-weight: 600; margin: 0 0 4px; }
+  .pm-meta { color: var(--muted); font-size: 13px; margin-bottom: 14px; }
+  .pm-meta span.cat { color: var(--accent); font-weight: 600; }
+  .pm-section { margin-bottom: 14px; }
+  .pm-section h3 { font-size: 12px; text-transform: uppercase; color: var(--muted); margin: 0 0 6px; }
+  .pm-section ul { margin: 0; padding-left: 20px; }
+  .pm-section li { margin-bottom: 4px; }
+  .evidence-item { border-left: 2px solid var(--border); padding-left: 10px; margin-bottom: 8px; }
+  .evidence-source { color: var(--accent); font-size: 12px; font-weight: 600; }
+  #placeholder { color: var(--muted); font-size: 14px; }
+  #stream-log {
+    background: #0b0d13; border: 1px solid var(--border); border-radius: 8px;
+    padding: 12px 14px; font-family: ui-monospace, "SF Mono", Consolas, monospace;
+    font-size: 12.5px; line-height: 1.6; max-height: 260px; overflow-y: auto;
+    margin-bottom: 16px;
+  }
+  #stream-log .step { color: var(--accent); font-weight: 600; margin-top: 6px; }
+  #stream-log .call { color: var(--text); }
+  #stream-log .out { color: var(--muted); padding-left: 14px; white-space: pre-wrap; word-break: break-word; }
+</style>
+</head>
+<body>
+<header>
+  <h1>🔍 Incident Investigator</h1>
+  <span id="status-pill">checking...</span>
+</header>
+<main>
+  <section>
+    <h2>Inject a fault</h2>
+    <div class="fault-grid">
+      <button data-fault="slow_db">slow_db</button>
+      <button data-fault="bad_deploy">bad_deploy</button>
+      <button data-fault="memory_leak">memory_leak</button>
+      <button data-fault="error_spike">error_spike</button>
+    </div>
+    <div class="row" id="investigate-row">
+      <button class="danger" id="clear-btn">Clear faults</button>
+      <button class="primary" id="investigate-btn">Investigate</button>
+      <span id="spinner">Investigating… this can take 20–60s</span>
+    </div>
+  </section>
+
+  <section>
+    <h2>Result</h2>
+    <div id="result"><p id="placeholder">Inject a fault, then click Investigate.</p></div>
+  </section>
+</main>
+
+<script>
+const statusPill = document.getElementById('status-pill');
+const resultEl = document.getElementById('result');
+const spinner = document.getElementById('spinner');
+const investigateBtn = document.getElementById('investigate-btn');
+
+async function refreshStatus() {
+  try {
+    const res = await fetch('/demo/health');
+    const data = await res.json();
+    const faults = data.active_faults || [];
+    if (faults.length) {
+      statusPill.textContent = 'active: ' + faults.join(', ');
+      statusPill.classList.add('faulted');
+    } else {
+      statusPill.textContent = 'healthy';
+      statusPill.classList.remove('faulted');
+    }
+  } catch (e) {
+    statusPill.textContent = 'demo-app unreachable';
+    statusPill.classList.add('faulted');
+  }
+}
+
+document.querySelectorAll('[data-fault]').forEach(btn => {
+  btn.addEventListener('click', async () => {
+    btn.disabled = true;
+    try {
+      await fetch(`/demo/faults/${btn.dataset.fault}`, { method: 'POST' });
+    } finally {
+      btn.disabled = false;
+      refreshStatus();
+    }
+  });
+});
+
+document.getElementById('clear-btn').addEventListener('click', async () => {
+  await fetch('/demo/faults', { method: 'DELETE' });
+  refreshStatus();
+});
+
+function renderPostmortem(pm) {
+  const evidence = (pm.evidence || []).map(e => `
+    <div class="evidence-item">
+      <div class="evidence-source">${escapeHtml(e.source)}</div>
+      <div>${escapeHtml(e.detail)}</div>
+    </div>`).join('');
+  const timeline = (pm.timeline || []).map(t => `<li>${escapeHtml(t)}</li>`).join('');
+  const similar = (pm.similar_past_incidents || []).map(t => `<li>${escapeHtml(t)}</li>`).join('');
+
+  const container = document.createElement('div');
+  container.innerHTML = `
+    <p class="pm-title">${escapeHtml(pm.title || 'Untitled incident')}</p>
+    <p class="pm-meta"><span class="cat">${escapeHtml(pm.fault_category || 'unknown')}</span>
+      &middot; confidence ${Math.round((pm.confidence ?? 0) * 100)}%</p>
+    <div class="pm-section"><h3>Root cause</h3><p>${escapeHtml(pm.root_cause || '')}</p></div>
+    ${timeline ? `<div class="pm-section"><h3>Timeline</h3><ul>${timeline}</ul></div>` : ''}
+    ${evidence ? `<div class="pm-section"><h3>Evidence</h3>${evidence}</div>` : ''}
+    <div class="pm-section"><h3>Suggested fix</h3><p>${escapeHtml(pm.suggested_fix || '')}</p></div>
+    ${similar ? `<div class="pm-section"><h3>Similar past incidents</h3><ul>${similar}</ul></div>` : ''}
+  `;
+  resultEl.appendChild(container);
+}
+
+function escapeHtml(s) {
+  return String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+}
+
+function appendLog(log, className, text) {
+  const line = document.createElement('div');
+  line.className = className;
+  line.textContent = text;
+  log.appendChild(line);
+  log.scrollTop = log.scrollHeight;
+}
+
+document.getElementById('investigate-btn').addEventListener('click', () => {
+  investigateBtn.disabled = true;
+  spinner.classList.add('on');
+  resultEl.innerHTML = '';
+
+  const log = document.createElement('div');
+  log.id = 'stream-log';
+  resultEl.appendChild(log);
+
+  const finish = () => {
+    investigateBtn.disabled = false;
+    spinner.classList.remove('on');
+    refreshStatus();
+  };
+
+  const alertText = encodeURIComponent('Manual investigation triggered from UI.');
+  const es = new EventSource(`/investigate/stream?alert=${alertText}`);
+
+  es.onmessage = (e) => {
+    const event = JSON.parse(e.data);
+    switch (event.type) {
+      case 'step_start':
+        appendLog(log, 'step', `Step ${event.step}`);
+        break;
+      case 'tool_call':
+        appendLog(log, 'call', `→ ${event.name}(${JSON.stringify(event.input)})`);
+        break;
+      case 'tool_result':
+        appendLog(log, 'out', event.result.length > 200 ? event.result.slice(0, 200) + '…' : event.result);
+        break;
+      case 'final':
+        es.close();
+        if (event.data.postmortem) {
+          renderPostmortem(event.data.postmortem);
+        } else {
+          const pre = document.createElement('pre');
+          pre.textContent = event.data.result || JSON.stringify(event.data, null, 2);
+          resultEl.appendChild(pre);
+        }
+        finish();
+        break;
+    }
+  };
+
+  es.onerror = () => {
+    es.close();
+    if (!resultEl.querySelector('.pm-title, pre')) {
+      const pre = document.createElement('pre');
+      pre.textContent = 'Stream error or connection closed.';
+      resultEl.appendChild(pre);
+    }
+    finish();
+  };
+});
+
+refreshStatus();
+setInterval(refreshStatus, 5000);
+</script>
+</body>
+</html>

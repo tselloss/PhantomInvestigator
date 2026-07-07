@@ -1,0 +1,9 @@
+fastapi
+uvicorn[standard]
+anthropic
+httpx
+pydantic
+structlog
+psycopg[binary]
+pgvector
+langfuse            # Week 7
