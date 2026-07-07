@@ -11,3 +11,4 @@ azure-identity
 azure-monitor-query
 azure-monitor-querymetrics
 boto3
+pyjwt

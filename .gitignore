@@ -5,3 +5,4 @@ __pycache__/
 pgdata/
 evals/results/
 .claude/
+.pytest_cache/

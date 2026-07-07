@@ -1,25 +1,37 @@
-import { useState } from "react";
+import { BrowserRouter, Route, Routes } from "react-router-dom";
 import "./App.css";
-import StatusPill from "./components/StatusPill";
-import FaultPanel from "./components/FaultPanel";
-import Investigator from "./components/Investigator";
-import ActivityFeed from "./components/ActivityFeed";
+import Layout from "./components/Layout";
+import RequireAuth from "./components/RequireAuth";
+import { AuthProvider } from "./context/AuthContext";
+import Login from "./pages/Login";
+import Dashboard from "./pages/Dashboard";
+import Investigate from "./pages/Investigate";
+import Investigations from "./pages/Investigations";
+import InvestigationDetail from "./pages/InvestigationDetail";
+import Runbooks from "./pages/Runbooks";
+import Integrations from "./pages/Integrations";
+import Demo from "./pages/Demo";
 
 function App() {
-  const [feedTick, setFeedTick] = useState(0);
-
   return (
-    <>
-      <header>
-        <h1>👻 Phantom Investigator</h1>
-        <StatusPill />
-      </header>
-      <main>
-        <FaultPanel onChange={() => setFeedTick((t) => t + 1)} />
-        <Investigator onFinished={() => setFeedTick((t) => t + 1)} />
-        <ActivityFeed refreshKey={feedTick} />
-      </main>
-    </>
+    <BrowserRouter>
+      <AuthProvider>
+        <Routes>
+          <Route path="/login" element={<Login />} />
+          <Route element={<RequireAuth />}>
+            <Route element={<Layout />}>
+              <Route path="/" element={<Dashboard />} />
+              <Route path="/investigate" element={<Investigate />} />
+              <Route path="/investigations" element={<Investigations />} />
+              <Route path="/investigations/:id" element={<InvestigationDetail />} />
+              <Route path="/runbooks" element={<Runbooks />} />
+              <Route path="/settings/integrations" element={<Integrations />} />
+              <Route path="/demo" element={<Demo />} />
+            </Route>
+          </Route>
+        </Routes>
+      </AuthProvider>
+    </BrowserRouter>
   );
 }
 

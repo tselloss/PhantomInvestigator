@@ -51,19 +51,39 @@ The demo-app + Prometheus/Loki/Grafana stack from AIInvestigator stays in place 
 | LLM tracing | Langfuse (self-hosted) | Full trace tree: spans, generations, tool calls, cost per run |
 | Evals | Custom harness + LLM-as-judge | Measured accuracy + quality on injected faults, not vibes |
 | Tests | pytest + respx, mocked | Tool-module request/response handling + webhook auth logic |
-| UI | React (Vite) | Operator console: manual trigger, live investigation view, webhook activity feed |
+| UI | React (Vite) + react-router | Multi-page operator console — see Operator console below |
+| Auth | Signed session cookie (PyJWT), single shared operator credential | Proportionate to an internal tool; no user table |
 | Packaging | Docker Compose | One command up, zero manual clicking |
+
+## Operator console
+
+The UI (`ui/`) is a multi-page app behind a login:
+
+| Route | Page |
+|---|---|
+| `/login` | Sign in |
+| `/` | Dashboard — integration health, 7-day stats, recent investigations |
+| `/investigate` | Manual trigger + live SSE investigation view |
+| `/investigations` | Full history, filterable by source/status, paginated |
+| `/investigations/:id` | Full postmortem, source links, re-run, mark reviewed |
+| `/runbooks` | Ingested runbooks + re-ingest trigger |
+| `/settings/integrations` | Which of Jira/GitHub/Azure/AWS/Prometheus/Loki are configured + live "test connection" |
+| `/demo` | demo-app fault injection + eval harness trigger/viewer |
+
+All JSON API routes live under `/api/*` and are gated by session auth (checked by `AuthMiddleware` in `agent/main.py`); `/health`, `/webhooks/*`, and `/auth/*` are intentionally public — webhooks authenticate via their own secret/signature, and the SPA shell + `/auth/*` have to be reachable before a session exists.
 
 ## Quickstart
 
 ```bash
 cp .env.example .env
 # Fill in: ANTHROPIC_API_KEY, EMBEDDING_API_KEY (Voyage AI), Langfuse secrets,
-# and whichever of JIRA_*/GITHUB_*/AZURE_*/AWS_* you actually have accounts for.
+# ADMIN_USERNAME/ADMIN_PASSWORD/SESSION_SECRET (operator login — generate
+# SESSION_SECRET with `openssl rand -hex 32`), and whichever of
+# JIRA_*/GITHUB_*/AZURE_*/AWS_* you actually have accounts for.
 
 make up          # docker compose up -d --build
 make ingest       # embed runbooks/*.md into pgvector
-make investigate  # or open the UI and trigger manually
+make investigate  # or open the UI, log in, and trigger manually
 ```
 
 | Service | URL |
@@ -114,6 +134,12 @@ needed instead of a tunnel — see Build status below.
 | F | Azure Monitor + AWS CloudWatch tools | ✅ code complete, needs your Azure/AWS credentials to test live |
 | G | Investigation quality/reliability (calibration, cross-source correlation, retries) | ✅ |
 | H | Test coverage (pytest + respx, tool modules + webhook auth) | ✅ 42 passing |
+| I | Multi-page operator console: nav shell + routing | ✅ |
+| K | Investigation history + detail pages (filters, pagination, mark reviewed, re-run) | ✅ |
+| L | Dashboard (integration health, 7-day stats, recent investigations) | ✅ |
+| M | Runbooks page (list + re-ingest) | ✅ |
+| N | Integrations/Settings page (config status + live test-connection) | ✅ |
+| J | Login-gated access (session cookie, single operator credential) | ✅ |
 
 Needs a stable public endpoint (small VPS) instead of a tunnel for anything beyond local testing — not done in this pass.
 

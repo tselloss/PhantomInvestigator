@@ -1,20 +1,18 @@
-import { useRef, useState } from "react";
-import PostmortemView from "./PostmortemView";
+import { useState } from "react";
+import PostmortemView from "../components/PostmortemView";
 
-export default function Investigator({ onFinished }) {
+export default function Investigate() {
   const [alertText, setAlertText] = useState("Manual investigation triggered from UI.");
   const [running, setRunning] = useState(false);
   const [log, setLog] = useState([]);
   const [final, setFinal] = useState(null);
-  const esRef = useRef(null);
 
   function start() {
     setRunning(true);
     setLog([]);
     setFinal(null);
 
-    const es = new EventSource(`/investigate/stream?alert=${encodeURIComponent(alertText)}`);
-    esRef.current = es;
+    const es = new EventSource(`/api/investigate/stream?alert=${encodeURIComponent(alertText)}`);
 
     es.onmessage = (e) => {
       const event = JSON.parse(e.data);
@@ -34,7 +32,6 @@ export default function Investigator({ onFinished }) {
           es.close();
           setFinal(event.data);
           setRunning(false);
-          onFinished?.();
           break;
       }
     };

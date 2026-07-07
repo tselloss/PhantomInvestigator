@@ -10,6 +10,20 @@ header h1 {
   margin: 0;
   font-weight: 600;
 }
+.nav-link {
+  font-size: 13px;
+  padding: 6px 10px;
+  border-radius: 6px;
+  color: var(--muted);
+  text-decoration: none;
+}
+.nav-link:hover {
+  color: var(--text);
+}
+.nav-link.active {
+  color: var(--text);
+  background: var(--panel);
+}
 .status-pill {
   font-size: 13px;
   padding: 4px 10px;
@@ -207,4 +221,7 @@ pre {
 }
 .feed-status.partial {
   color: var(--warn);
+}
+.feed-status.error {
+  color: var(--err);
 }

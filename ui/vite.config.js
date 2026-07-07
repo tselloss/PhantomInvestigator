@@ -6,10 +6,8 @@ export default defineConfig({
   plugins: [react()],
   server: {
     proxy: {
-      '/investigate': 'http://localhost:8085',
-      '/investigations': 'http://localhost:8085',
-      '/demo': 'http://localhost:8085',
-      '/webhooks': 'http://localhost:8085',
+      '/api': 'http://localhost:8085',
+      '/auth': 'http://localhost:8085',
       '/health': 'http://localhost:8085',
     },
   },

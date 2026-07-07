@@ -8,7 +8,7 @@ export default function StatusPill() {
     let cancelled = false;
     async function refresh() {
       try {
-        const res = await fetch("/demo/health");
+        const res = await fetch("/api/demo/health");
         const data = await res.json();
         const faults = data.active_faults || [];
         if (cancelled) return;

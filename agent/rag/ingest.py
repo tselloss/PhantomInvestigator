@@ -45,7 +45,8 @@ def embed(texts: list[str], input_type: str = "document") -> list[list[float]]:
     resp.raise_for_status()
     return [d["embedding"] for d in resp.json()["data"]]
 
-def main():
+def main() -> int:
+    """Returns the number of newly-embedded chunks (0 if nothing changed)."""
     with psycopg.connect(DATABASE_URL, autocommit=True) as conn:
         conn.execute("CREATE EXTENSION IF NOT EXISTS vector")
         register_vector(conn)
@@ -72,7 +73,7 @@ def main():
 
         if not to_embed:
             print("Nothing new to embed.")
-            return
+            return 0
 
         embeddings = embed([c[1] for c in to_embed])
         for (title, chunk, content_hash), embedding in zip(to_embed, embeddings):
@@ -82,6 +83,23 @@ def main():
                 (title, chunk, content_hash, embedding),
             )
         print(f"Embedded {len(to_embed)} new chunks.")
+        return len(to_embed)
+
+
+def list_runbooks() -> list[dict]:
+    """Distinct titles + chunk counts. Falls back to the raw markdown filenames
+    if nothing has been ingested into Postgres yet."""
+    try:
+        with psycopg.connect(DATABASE_URL, connect_timeout=10) as conn:
+            rows = conn.execute(
+                "SELECT title, COUNT(*) FROM runbook_chunks GROUP BY title ORDER BY title"
+            ).fetchall()
+        if rows:
+            return [{"title": title, "chunk_count": count} for title, count in rows]
+    except Exception:
+        pass
+    return [{"title": path.stem.replace("-", " "), "chunk_count": 0} for path in sorted(RUNBOOKS_DIR.glob("*.md"))]
+
 
 if __name__ == "__main__":
     main()
