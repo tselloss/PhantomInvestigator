@@ -4,6 +4,8 @@ import os
 
 import httpx
 
+from ._http import request_with_retry
+
 JIRA_BASE_URL = os.environ.get("JIRA_BASE_URL", "")
 JIRA_EMAIL = os.environ.get("JIRA_EMAIL", "")
 JIRA_API_TOKEN = os.environ.get("JIRA_API_TOKEN", "")
@@ -40,13 +42,13 @@ def get_ticket(key: str) -> str:
     if not JIRA_BASE_URL:
         return "ERROR: JIRA_BASE_URL not configured"
     try:
-        resp = httpx.get(
+        resp = request_with_retry(
+            "GET",
             f"{JIRA_BASE_URL}/rest/api/3/issue/{key}",
             auth=_auth(),
             params={"fields": "summary,description,comment,status,created"},
             timeout=10.0,
         )
-        resp.raise_for_status()
     except httpx.HTTPError as e:
         return f"ERROR fetching Jira ticket {key}: {e}"
 
@@ -79,13 +81,13 @@ def post_comment(key: str, body: str) -> str:
         }
     }
     try:
-        resp = httpx.post(
+        request_with_retry(
+            "POST",
             f"{JIRA_BASE_URL}/rest/api/3/issue/{key}/comment",
             auth=_auth(),
             json=payload,
             timeout=10.0,
         )
-        resp.raise_for_status()
     except httpx.HTTPError as e:
         return f"ERROR posting comment to {key}: {e}"
     return f"Comment posted to {key}"

@@ -1,4 +1,4 @@
-.PHONY: up down ingest inject clear investigate evals load tunnel
+.PHONY: up down ingest inject clear investigate evals load tunnel test
 
 up:            ## start the whole stack
 	docker compose up -d --build
@@ -24,5 +24,8 @@ clear:         ## clear all injected faults
 investigate:   ## run the agent on the current situation (Week 3)
 	curl -s -X POST localhost:8085/investigate -H 'Content-Type: application/json' -d '{"alert":"manual trigger"}' | python -m json.tool
 
-evals:         ## run the eval harness (Week 6)
+evals:         ## run the eval harness against the demo-app faults
 	docker compose exec agent python -m evals.run
+
+test:          ## run the unit tests (tool modules + webhook auth) -- not installed in the prod image
+	docker compose exec agent sh -c "pip install -q -r requirements-dev.txt && python -m pytest tests/ -v"

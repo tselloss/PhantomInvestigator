@@ -3,7 +3,7 @@
 Tool descriptions are 50% of your prompt engineering — write them like
 you're onboarding a junior SRE.
 """
-from . import prometheus, loki, deploys, runbooks, jira, github_actions
+from . import prometheus, loki, deploys, runbooks, jira, github_actions, azure_monitor, aws_cloudwatch
 from schemas import Postmortem
 
 TOOL_SCHEMAS = [
@@ -109,6 +109,54 @@ TOOL_SCHEMAS = [
         },
     },
     {
+        "name": "query_azure_logs",
+        "description": "Run a KQL query against the configured Azure Log Analytics workspace. Use for incidents on Azure-hosted infra.",
+        "input_schema": {
+            "type": "object",
+            "properties": {"kql": {"type": "string"}},
+            "required": ["kql"],
+        },
+    },
+    {
+        "name": "query_azure_metrics",
+        "description": "Fetch Azure Monitor metrics for a resource, e.g. 'Percentage CPU', 'Network In'.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "resource_id": {"type": "string", "description": "Full Azure resource ID"},
+                "metric_namespace": {"type": "string", "description": "e.g. 'Microsoft.Compute/virtualMachines'"},
+                "metric_names": {"type": "string", "description": "Comma-separated metric names"},
+            },
+            "required": ["resource_id", "metric_namespace", "metric_names"],
+        },
+    },
+    {
+        "name": "query_aws_logs",
+        "description": "Search a CloudWatch log group with a filter pattern over the last N minutes. Use for incidents on AWS-hosted infra.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "log_group": {"type": "string"},
+                "filter_pattern": {"type": "string"},
+                "minutes": {"type": "integer", "default": 15},
+            },
+            "required": ["log_group", "filter_pattern"],
+        },
+    },
+    {
+        "name": "query_aws_metrics",
+        "description": "Fetch CloudWatch metric statistics (avg/max over the last hour) for a namespace + metric name.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "namespace": {"type": "string", "description": "e.g. 'AWS/EC2', 'AWS/RDS'"},
+                "metric_name": {"type": "string", "description": "e.g. 'CPUUtilization'"},
+                "dimensions_json": {"type": "string", "description": "JSON array, e.g. '[{\"Name\": \"InstanceId\", \"Value\": \"i-123\"}]'"},
+            },
+            "required": ["namespace", "metric_name"],
+        },
+    },
+    {
         "name": "submit_postmortem",
         "description": (
             "Submit your final, structured incident postmortem. Call this exactly once, "
@@ -132,6 +180,10 @@ def execute_tool(name: str, args: dict) -> str:
             case "get_github_runs":   return github_actions.get_recent_runs(args["repo"])
             case "get_github_run_logs": return github_actions.get_run_logs(args["repo"], args["run_id"])
             case "get_deploy_diff":   return github_actions.get_deploy_diff(args["repo"], args["base"], args["head"])
+            case "query_azure_logs":  return azure_monitor.query_logs(args["kql"])
+            case "query_azure_metrics": return azure_monitor.query_metrics(args["resource_id"], args["metric_namespace"], args["metric_names"])
+            case "query_aws_logs":    return aws_cloudwatch.query_logs(args["log_group"], args["filter_pattern"], args.get("minutes", 15))
+            case "query_aws_metrics": return aws_cloudwatch.query_metrics(args["namespace"], args["metric_name"], args.get("dimensions_json", "[]"))
             case _:                   return f"ERROR: unknown tool {name}"
     except Exception as e:
         return f"ERROR: {type(e).__name__}: {e}"

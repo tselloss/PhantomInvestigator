@@ -5,6 +5,8 @@ import os
 
 import httpx
 
+from ._http import request_with_retry
+
 GITHUB_TOKEN = os.environ.get("GITHUB_TOKEN", "")
 GITHUB_API = "https://api.github.com"
 
@@ -22,13 +24,13 @@ def get_recent_runs(repo: str) -> str:
     if not GITHUB_TOKEN:
         return "ERROR: GITHUB_TOKEN not configured"
     try:
-        resp = httpx.get(
+        resp = request_with_retry(
+            "GET",
             f"{GITHUB_API}/repos/{repo}/actions/runs",
             headers=_headers(),
             params={"per_page": 10},
             timeout=10.0,
         )
-        resp.raise_for_status()
     except httpx.HTTPError as e:
         return f"ERROR fetching workflow runs for {repo}: {e}"
 
@@ -46,12 +48,12 @@ def get_run_logs(repo: str, run_id: int) -> str:
     if not GITHUB_TOKEN:
         return "ERROR: GITHUB_TOKEN not configured"
     try:
-        jobs_resp = httpx.get(
+        jobs_resp = request_with_retry(
+            "GET",
             f"{GITHUB_API}/repos/{repo}/actions/runs/{run_id}/jobs",
             headers=_headers(),
             timeout=10.0,
         )
-        jobs_resp.raise_for_status()
     except httpx.HTTPError as e:
         return f"ERROR fetching jobs for run {run_id}: {e}"
 
@@ -62,13 +64,13 @@ def get_run_logs(repo: str, run_id: int) -> str:
     chunks = []
     for job in failed_jobs[:3]:
         try:
-            log_resp = httpx.get(
+            log_resp = request_with_retry(
+                "GET",
                 f"{GITHUB_API}/repos/{repo}/actions/jobs/{job['id']}/logs",
                 headers=_headers(),
                 timeout=10.0,
                 follow_redirects=True,
             )
-            log_resp.raise_for_status()
             chunks.append(f"--- job: {job['name']} ---\n{log_resp.text[-1500:]}")
         except httpx.HTTPError as e:
             chunks.append(f"--- job: {job['name']} ---\nERROR fetching logs: {e}")
@@ -80,12 +82,12 @@ def get_deploy_diff(repo: str, base: str, head: str) -> str:
     if not GITHUB_TOKEN:
         return "ERROR: GITHUB_TOKEN not configured"
     try:
-        resp = httpx.get(
+        resp = request_with_retry(
+            "GET",
             f"{GITHUB_API}/repos/{repo}/compare/{base}...{head}",
             headers=_headers(),
             timeout=10.0,
         )
-        resp.raise_for_status()
     except httpx.HTTPError as e:
         return f"ERROR comparing {base}...{head} on {repo}: {e}"
 

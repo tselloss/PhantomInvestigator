@@ -1,0 +1,122 @@
+import hashlib
+import hmac
+import json
+from unittest.mock import patch
+
+from fastapi.testclient import TestClient
+
+import main
+from routes import webhooks
+
+client = TestClient(main.app)
+
+
+def test_jira_webhook_rejects_bad_secret(monkeypatch):
+    monkeypatch.setattr(webhooks, "JIRA_WEBHOOK_SECRET", "s3cr3t")
+    resp = client.post("/webhooks/jira?secret=wrong", json={"issue": {"key": "OPS-1", "fields": {"summary": "x"}}})
+    assert resp.status_code == 401
+
+
+def test_jira_webhook_rejects_when_secret_not_configured(monkeypatch):
+    monkeypatch.setattr(webhooks, "JIRA_WEBHOOK_SECRET", "")
+    resp = client.post("/webhooks/jira?secret=anything", json={"issue": {"key": "OPS-1", "fields": {}}})
+    assert resp.status_code == 401
+
+
+def test_jira_webhook_requires_issue_key(monkeypatch):
+    monkeypatch.setattr(webhooks, "JIRA_WEBHOOK_SECRET", "s3cr3t")
+    resp = client.post("/webhooks/jira?secret=s3cr3t", json={"issue": {}})
+    assert resp.status_code == 400
+
+
+def test_jira_webhook_accepts_valid_secret_and_schedules_investigation(monkeypatch):
+    monkeypatch.setattr(webhooks, "JIRA_WEBHOOK_SECRET", "s3cr3t")
+    with patch.object(webhooks, "_investigate_and_report") as mock_investigate:
+        resp = client.post(
+            "/webhooks/jira?secret=s3cr3t",
+            json={"issue": {"key": "OPS-1", "fields": {"summary": "checkout down"}}},
+        )
+
+    assert resp.status_code == 200
+    assert resp.json() == {"accepted": True, "key": "OPS-1"}
+    mock_investigate.assert_called_once()
+    source, source_ref, alert_text, jira_key = mock_investigate.call_args.args
+    assert source == "jira"
+    assert source_ref == "OPS-1"
+    assert "checkout down" in alert_text
+    assert jira_key == "OPS-1"
+
+
+def _github_signature(secret: str, body: bytes) -> str:
+    return "sha256=" + hmac.new(secret.encode(), body, hashlib.sha256).hexdigest()
+
+
+def test_github_webhook_rejects_bad_signature(monkeypatch):
+    monkeypatch.setattr(webhooks, "GITHUB_WEBHOOK_SECRET", "ghsecret")
+    body = json.dumps({"workflow_run": {"conclusion": "failure"}}).encode()
+    resp = client.post(
+        "/webhooks/github",
+        content=body,
+        headers={"X-Hub-Signature-256": "sha256=deadbeef", "Content-Type": "application/json"},
+    )
+    assert resp.status_code == 401
+
+
+def test_github_webhook_rejects_when_secret_not_configured(monkeypatch):
+    monkeypatch.setattr(webhooks, "GITHUB_WEBHOOK_SECRET", "")
+    body = json.dumps({"workflow_run": {"conclusion": "failure"}}).encode()
+    resp = client.post(
+        "/webhooks/github",
+        content=body,
+        headers={"X-Hub-Signature-256": "sha256=whatever", "Content-Type": "application/json"},
+    )
+    assert resp.status_code == 401
+
+
+def test_github_webhook_accepts_valid_signature_and_schedules_on_failure(monkeypatch):
+    monkeypatch.setattr(webhooks, "GITHUB_WEBHOOK_SECRET", "ghsecret")
+    payload = {
+        "workflow_run": {
+            "id": 99,
+            "name": "CI",
+            "conclusion": "failure",
+            "head_branch": "main",
+            "head_sha": "abcdef1234",
+        },
+        "repository": {"full_name": "owner/repo"},
+    }
+    body = json.dumps(payload).encode()
+    sig = _github_signature("ghsecret", body)
+
+    with patch.object(webhooks, "_investigate_and_report") as mock_investigate:
+        resp = client.post(
+            "/webhooks/github",
+            content=body,
+            headers={"X-Hub-Signature-256": sig, "Content-Type": "application/json"},
+        )
+
+    assert resp.status_code == 200
+    assert resp.json() == {"accepted": True, "run_id": 99}
+    mock_investigate.assert_called_once()
+    source, source_ref, alert_text = mock_investigate.call_args.args
+    assert source == "github"
+    assert source_ref == "99"
+    assert "owner/repo" in alert_text
+
+
+def test_github_webhook_ignores_non_failure_conclusion(monkeypatch):
+    monkeypatch.setattr(webhooks, "GITHUB_WEBHOOK_SECRET", "ghsecret")
+    payload = {"workflow_run": {"id": 1, "conclusion": "success"}, "repository": {"full_name": "owner/repo"}}
+    body = json.dumps(payload).encode()
+    sig = _github_signature("ghsecret", body)
+
+    with patch.object(webhooks, "_investigate_and_report") as mock_investigate:
+        resp = client.post(
+            "/webhooks/github",
+            content=body,
+            headers={"X-Hub-Signature-256": sig, "Content-Type": "application/json"},
+        )
+
+    assert resp.status_code == 200
+    assert resp.json() == {"accepted": False, "reason": "not a failed run"}
+    mock_investigate.assert_not_called()

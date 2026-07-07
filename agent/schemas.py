@@ -19,7 +19,7 @@ class Postmortem(BaseModel):
     root_cause: str
     fault_category: str = Field(description=(
         "Categorize by the FAILURE MECHANISM you found, not by whether a deploy diff "
-        "exists — in this environment every fault correlates with a recent deploy, so "
+        "exists — on demo-shop every fault correlates with a recent deploy, so "
         "'a deploy happened' is not sufficient evidence for 'bad_deploy' specifically. "
         "One of: "
         "slow_db (a resource like a DB connection pool is exhausted, causing requests "
@@ -30,7 +30,12 @@ class Postmortem(BaseModel):
         "eviction, trending toward gradual degradation or OOM — not an immediate crash); "
         "error_spike (a downstream dependency times out or fails, causing the request "
         "itself to error out, e.g. a misconfigured timeout to a payment provider); "
-        "unknown (evidence doesn't clearly match any of the above)."
+        "unknown (evidence doesn't clearly match any of the above). "
+        "These four categories describe demo-shop's synthetic fault taxonomy. For a "
+        "real (non-demo) incident that doesn't clearly fit one of them, use 'unknown' "
+        "here and put the actual explanation in root_cause/contributing_factors — do "
+        "not force-fit a real incident into the wrong demo category just to avoid "
+        "'unknown'."
     ))
     confidence: float = Field(ge=0, le=1)
     timeline: list[str]

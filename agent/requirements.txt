@@ -6,4 +6,8 @@ pydantic
 structlog
 psycopg[binary]
 pgvector
-langfuse            # Week 7
+langfuse
+azure-identity
+azure-monitor-query
+azure-monitor-querymetrics
+boto3

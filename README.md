@@ -44,10 +44,13 @@ The demo-app + Prometheus/Loki/Grafana stack from AIInvestigator stays in place 
 | LLM | Anthropic API (tool use), Haiku 4.5 | First-class function calling; cheap enough to run repeatedly |
 | Ticket source | Jira Cloud REST API | Real incidents start life as tickets |
 | CI/deploy source | GitHub Actions API + compare API | Real workflow failures and real deploy diffs |
+| Azure metrics/logs | Log Analytics (KQL) + Azure Monitor Metrics, AAD service principal | For incidents on Azure-hosted infra |
+| AWS metrics/logs | CloudWatch Logs + Metrics, access-key auth via boto3 | For incidents on AWS-hosted infra |
 | RAG | PostgreSQL + pgvector + Voyage AI, hybrid search (vector + full-text via RRF) | Boring, production-real, no bespoke vector-DB infra |
 | Metrics/Logs (optional) | Prometheus / Loki + promtail | Kept from AIInvestigator for synthetic-fault testing |
 | LLM tracing | Langfuse (self-hosted) | Full trace tree: spans, generations, tool calls, cost per run |
 | Evals | Custom harness + LLM-as-judge | Measured accuracy + quality on injected faults, not vibes |
+| Tests | pytest + respx, mocked | Tool-module request/response handling + webhook auth logic |
 | UI | React (Vite) | Operator console: manual trigger, live investigation view, webhook activity feed |
 | Packaging | Docker Compose | One command up, zero manual clicking |
 
@@ -56,7 +59,7 @@ The demo-app + Prometheus/Loki/Grafana stack from AIInvestigator stays in place 
 ```bash
 cp .env.example .env
 # Fill in: ANTHROPIC_API_KEY, EMBEDDING_API_KEY (Voyage AI), Langfuse secrets,
-# and JIRA_*/GITHUB_* credentials once Phase B/C tools are wired up.
+# and whichever of JIRA_*/GITHUB_*/AZURE_*/AWS_* you actually have accounts for.
 
 make up          # docker compose up -d --build
 make ingest       # embed runbooks/*.md into pgvector
@@ -70,6 +73,14 @@ make investigate  # or open the UI and trigger manually
 | Grafana | http://localhost:3300 |
 | Prometheus | http://localhost:9090 |
 | **Langfuse (traces)** | http://localhost:3301 |
+
+## Running the tests
+
+```bash
+make test   # pytest + respx: tool-module request/response handling, webhook auth logic
+```
+
+Mocked, no live credentials needed — separate from `make evals`, which scores investigation quality against demo-app faults using the real Anthropic API.
 
 ## Wiring up webhooks (local testing)
 
@@ -99,8 +110,10 @@ needed instead of a tunnel — see Build status below.
 | B | Jira integration (`get_jira_ticket`, webhook, comment-back) | ✅ |
 | C | GitHub Actions integration (runs, logs, real deploy diffs, webhook) | ✅ |
 | D | Local webhook testing via tunnel | ✅ documented, needs your Jira/GitHub credentials to test live |
-| E | React operator UI | ⬜ in progress |
-| F | Azure Monitor + AWS CloudWatch tools | ⬜ deferred |
+| E | React operator UI | ✅ |
+| F | Azure Monitor + AWS CloudWatch tools | ✅ code complete, needs your Azure/AWS credentials to test live |
+| G | Investigation quality/reliability (calibration, cross-source correlation, retries) | ✅ |
+| H | Test coverage (pytest + respx, tool modules + webhook auth) | ✅ 42 passing |
 
 Needs a stable public endpoint (small VPS) instead of a tunnel for anything beyond local testing — not done in this pass.
 
