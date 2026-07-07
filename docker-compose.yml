@@ -11,7 +11,9 @@ services:
       logging: "promtail"
 
   agent:
-    build: ./agent
+    build:
+      context: .
+      dockerfile: agent/Dockerfile
     ports: ["8085:8080"]
     env_file: .env
     environment:

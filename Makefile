@@ -1,4 +1,4 @@
-.PHONY: up down ingest inject clear investigate evals load
+.PHONY: up down ingest inject clear investigate evals load tunnel
 
 up:            ## start the whole stack
 	docker compose up -d --build
@@ -6,10 +6,13 @@ up:            ## start the whole stack
 down:
 	docker compose down
 
-load:          ## generate background traffic (Week 2)
+tunnel:        ## expose the agent publicly so Jira/GitHub webhooks can reach it (needs ngrok installed)
+	ngrok http 8085
+
+load:          ## generate background traffic
 	python scripts/load_generator.py
 
-ingest:        ## embed runbooks into pgvector (Week 5)
+ingest:        ## embed runbooks into pgvector
 	docker compose exec agent python -m rag.ingest
 
 inject:        ## e.g. make inject FAULT=slow_db

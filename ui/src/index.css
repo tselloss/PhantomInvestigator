@@ -1,0 +1,30 @@
+:root {
+  --bg: #0f1117;
+  --panel: #171a23;
+  --border: #2a2e3a;
+  --text: #e6e8ee;
+  --muted: #8b90a0;
+  --accent: #5b8cff;
+  --ok: #3ecf8e;
+  --warn: #f5a623;
+  --err: #ef5757;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  font-family: -apple-system, "Segoe UI", Roboto, sans-serif;
+  background: var(--bg);
+  color: var(--text);
+}
+
+#root {
+  min-height: 100vh;
+}
+
+code, pre {
+  font-family: ui-monospace, "SF Mono", Consolas, monospace;
+}

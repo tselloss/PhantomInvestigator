@@ -71,17 +71,38 @@ make investigate  # or open the UI and trigger manually
 | Prometheus | http://localhost:9090 |
 | **Langfuse (traces)** | http://localhost:3301 |
 
+## Wiring up webhooks (local testing)
+
+Jira and GitHub both need a public URL to reach your webhook endpoints. Locally, use a tunnel:
+
+```bash
+make tunnel   # ngrok http 8085 — copy the https://*.ngrok-free.app URL it prints
+```
+
+**Jira**: Project settings → System → WebHooks → create one pointing at
+`https://<tunnel>/webhooks/jira?secret=<JIRA_WEBHOOK_SECRET>`, firing on
+issue created (and/or labeled, depending on how you want to scope triggers).
+
+**GitHub**: Repo settings → Webhooks → Add webhook, payload URL
+`https://<tunnel>/webhooks/github`, content type `application/json`, secret =
+`GITHUB_WEBHOOK_SECRET`, events = "Workflow runs".
+
+For anything beyond local testing, a stable public endpoint (small VPS) is
+needed instead of a tunnel — see Build status below.
+
 ## Build status
 
 | Phase | Theme | Status |
 |---|---|---|
 | — | Agent loop, RAG, evals, tracing (inherited from AIInvestigator) | ✅ |
 | A | Repo setup, isolated from AIInvestigator | ✅ |
-| B | Jira integration (`get_jira_ticket`, webhook, comment-back) | ⬜ in progress |
-| C | GitHub Actions integration (runs, logs, real deploy diffs, webhook) | ⬜ |
-| D | Local webhook testing via tunnel | ⬜ |
-| E | React operator UI | ⬜ |
+| B | Jira integration (`get_jira_ticket`, webhook, comment-back) | ✅ |
+| C | GitHub Actions integration (runs, logs, real deploy diffs, webhook) | ✅ |
+| D | Local webhook testing via tunnel | ✅ documented, needs your Jira/GitHub credentials to test live |
+| E | React operator UI | ⬜ in progress |
 | F | Azure Monitor + AWS CloudWatch tools | ⬜ deferred |
+
+Needs a stable public endpoint (small VPS) instead of a tunnel for anything beyond local testing — not done in this pass.
 
 ## Project docs
 

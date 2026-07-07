@@ -5,11 +5,15 @@ import os
 import httpx
 from fastapi import FastAPI, HTTPException
 from fastapi.responses import HTMLResponse, StreamingResponse
+from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
+
+from routes.webhooks import router as webhooks_router
 
 DEMO_APP_URL = os.environ.get("DEMO_APP_URL", "http://localhost:8001")
 
 app = FastAPI(title="phantom-investigator")
+app.include_router(webhooks_router)
 
 class InvestigateRequest(BaseModel):
     alert: str
@@ -35,13 +39,30 @@ async def investigate_stream(alert: str = "Manual investigation triggered from U
 async def health():
     return {"ok": True}
 
-# ---- UI + thin proxies to demo-app, so the browser only ever talks to the agent ----
+@app.get("/investigations")
+async def investigations_feed(limit: int = 20):
+    from investigations import list_recent
+    return list_recent(limit)
 
-_UI_PATH = os.path.join(os.path.dirname(__file__), "static", "index.html")
+# ---- UI (React, built into static/ui by the Docker image) + thin proxies
+# to demo-app, so the browser only ever talks to the agent ----
+
+_UI_DIST = os.path.join(os.path.dirname(__file__), "static", "ui")
+
+if os.path.isdir(os.path.join(_UI_DIST, "assets")):
+    app.mount("/assets", StaticFiles(directory=os.path.join(_UI_DIST, "assets")), name="ui-assets")
 
 @app.get("/", response_class=HTMLResponse)
 async def ui():
-    return open(_UI_PATH).read()
+    index_path = os.path.join(_UI_DIST, "index.html")
+    if os.path.exists(index_path):
+        return open(index_path, encoding="utf-8").read()
+    return (
+        "<h1>Phantom Investigator</h1>"
+        "<p>React UI not built into this image. Run <code>npm run dev</code> in "
+        "<code>ui/</code> for local development, or <code>docker compose up --build</code> "
+        "to serve the built assets from here.</p>"
+    )
 
 @app.get("/demo/health")
 async def demo_health():
