@@ -141,17 +141,14 @@ export default function Integrations() {
         </p>
 
         <div className="feed-row">
-          <div>
+          <div className="row" style={{ gap: 8 }}>
             <span className="feed-source">{aiStatus?.provider || "ai"}</span>
-            {" — "}
-            <span className={aiStatus?.configured ? "" : "placeholder"}>
+            <span className={"badge " + (aiStatus?.configured ? "ok" : "warn")}>
               {aiStatus?.configured ? "configured" : "not configured"}
             </span>
-            {aiStatus?.override && <span className="feed-meta" style={{ marginLeft: 8 }}>· stored override</span>}
+            {aiStatus?.override && <span className="tag accent">stored override</span>}
             {aiResult && (
-              <span style={{ marginLeft: 10, color: aiResult.ok ? "var(--ok)" : "var(--err)" }}>
-                {aiResult.detail}
-              </span>
+              <span style={{ color: aiResult.ok ? "var(--ok)" : "var(--err)" }}>{aiResult.detail}</span>
             )}
           </div>
           <div className="row" style={{ gap: 8 }}>
@@ -224,13 +221,14 @@ export default function Integrations() {
         {integrations.map((i) => (
         <div key={i.name}>
           <div className="feed-row">
-            <div>
+            <div className="row" style={{ gap: 8 }}>
               <span className="feed-source">{i.name}</span>
-              {" — "}
-              <span className={i.configured ? "" : "placeholder"}>{i.configured ? "configured" : "not configured"}</span>
-              {i.override && <span className="feed-meta" style={{ marginLeft: 8 }}>· stored override</span>}
+              <span className={"badge " + (i.configured ? "ok" : "warn")}>
+                {i.configured ? "configured" : "not configured"}
+              </span>
+              {i.override && <span className="tag accent">stored override</span>}
               {results[i.name] && (
-                <span style={{ marginLeft: 10, color: results[i.name].ok ? "var(--ok)" : "var(--err)" }}>
+                <span style={{ color: results[i.name].ok ? "var(--ok)" : "var(--err)" }}>
                   {results[i.name].detail}
                 </span>
               )}

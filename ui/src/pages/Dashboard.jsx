@@ -1,6 +1,59 @@
 import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import Icon from "../components/Icon";
+import MagicBento from "../components/MagicBento";
+
+const QUICK_ACTIONS = [
+  {
+    id: "investigate",
+    icon: "search",
+    label: "New",
+    title: "Start an investigation",
+    description: "Describe an incident or paste an alert and let the agent take it from there.",
+    to: "/investigate",
+    wide: true,
+  },
+  {
+    id: "investigations",
+    icon: "list",
+    label: "History",
+    title: "Investigations",
+    description: "Browse past runs, postmortems, and evidence.",
+    to: "/investigations",
+  },
+  {
+    id: "clients",
+    icon: "users",
+    label: "Manage",
+    title: "Clients",
+    description: "Manage client deployments and credentials.",
+    to: "/clients",
+  },
+  {
+    id: "runbooks",
+    icon: "book",
+    label: "Playbooks",
+    title: "Runbooks",
+    description: "Guide the agent with your team's known fixes.",
+    to: "/runbooks",
+  },
+  {
+    id: "integrations",
+    icon: "zap",
+    label: "Connect",
+    title: "Integrations",
+    description: "Connect Jira, GitHub, Prometheus, Loki, and cloud providers.",
+    to: "/settings/integrations",
+  },
+  {
+    id: "demo",
+    icon: "flask",
+    label: "Try it",
+    title: "Demo",
+    description: "Run a sample investigation with seeded data.",
+    to: "/demo",
+  },
+];
 
 export default function Dashboard() {
   const [stats, setStats] = useState(null);
@@ -25,18 +78,26 @@ export default function Dashboard() {
   return (
     <>
       <section>
+        <h2>Quick actions</h2>
+        <MagicBento items={QUICK_ACTIONS} />
+      </section>
+
+      <section>
         <h2>Integration health</h2>
         <div className="fault-grid">
           {integrations.map((i) => (
-            <div key={i.name} className={"status-pill" + (i.configured ? "" : " faulted")} style={{ justifyContent: "center" }}>
-              {i.name}: {i.configured ? "configured" : "not configured"}
+            <div key={i.name} className="integration-tile">
+              <span className="feed-source">{i.name}</span>
+              <span className={"badge " + (i.configured ? "ok" : "warn")}>
+                {i.configured ? "configured" : "not configured"}
+              </span>
             </div>
           ))}
           {integrations.length === 0 && (
             <>
-              <div className="skeleton" style={{ height: 30 }} />
-              <div className="skeleton" style={{ height: 30 }} />
-              <div className="skeleton" style={{ height: 30 }} />
+              <div className="skeleton" style={{ height: 38 }} />
+              <div className="skeleton" style={{ height: 38 }} />
+              <div className="skeleton" style={{ height: 38 }} />
             </>
           )}
         </div>
@@ -53,17 +114,17 @@ export default function Dashboard() {
           </div>
         ) : (
           <div className="fault-grid">
-            <div className="skeleton" style={{ height: 60 }} />
-            <div className="skeleton" style={{ height: 60 }} />
-            <div className="skeleton" style={{ height: 60 }} />
-            <div className="skeleton" style={{ height: 60 }} />
+            <div className="skeleton" style={{ height: 90 }} />
+            <div className="skeleton" style={{ height: 90 }} />
+            <div className="skeleton" style={{ height: 90 }} />
+            <div className="skeleton" style={{ height: 90 }} />
           </div>
         )}
       </section>
 
       <section>
-        <div className="row" style={{ justifyContent: "space-between" }}>
-          <h2 style={{ margin: 0 }}>Recent investigations</h2>
+        <div className="section-head">
+          <h2>Recent investigations</h2>
           <Link to="/investigate">
             <button className="primary">
               <Icon name="plus" size={14} />
@@ -95,7 +156,7 @@ export default function Dashboard() {
 
 function StatTile({ icon, label, value, accent = "var(--accent)" }) {
   return (
-    <div style={{ textAlign: "center", padding: "14px 0" }}>
+    <div className="stat-tile">
       <div
         style={{
           width: 30,

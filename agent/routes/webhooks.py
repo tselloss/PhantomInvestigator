@@ -12,7 +12,6 @@ from fastapi import APIRouter, BackgroundTasks, Header, HTTPException, Request
 import clients
 import investigations
 from loop import run_agent
-from tools import jira
 
 log = structlog.get_logger(__name__)
 
@@ -82,14 +81,23 @@ def _investigate_and_report(
     loop_alert_text = clients.build_loop_alert_text(alert_text, investigation_id, deployment_id, owner_user_id)
     result = run_agent(loop_alert_text, owner_user_id, deployment_id=deployment_id)
     pm = result.get("postmortem") if result else None
-    investigations.finish(investigation_id, "done" if pm else "partial", result or {})
+
+    # Posting to Jira is a high-stakes, externally-visible write -- instead
+    # of firing it unattended the moment the loop finishes, queue it as a
+    # pending_action for an operator to approve or dismiss from the UI (see
+    # routes/investigations.py's approve-post/dismiss-post).
+    pending_action = None
     if jira_key and pm:
         body = (
             f"[Phantom Investigator] {pm['title']}\n\n"
             f"Root cause ({pm['confidence']:.0%} confidence): {pm['root_cause']}\n\n"
             f"Suggested fix: {pm['suggested_fix']}"
         )
-        jira.post_comment(jira_key, body, owner_user_id, deployment_id=deployment_id)
+        pending_action = {"type": "jira_comment", "key": jira_key, "body": body}
+
+    investigations.finish(
+        investigation_id, "done" if pm else "partial", result or {}, pending_action=pending_action
+    )
 
 
 @router.post("/jira")

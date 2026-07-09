@@ -307,7 +307,7 @@ export default function Clients() {
         </button>
       </div>
 
-      {error && <p className="placeholder">Couldn't load clients: {error}</p>}
+      {error && <div className="alert err">Couldn't load clients: {error}</div>}
       {!error && clients.length === 0 && (
         <div className="empty-state">
           <Icon name="users" size={30} />
@@ -318,12 +318,20 @@ export default function Clients() {
       {clients.map((c) => (
         <div key={c.id} style={{ marginBottom: 8 }}>
           <div className="feed-row" style={{ cursor: "pointer" }} onClick={() => toggleExpand(c.id)}>
-            <div>{c.name}</div>
+            <div className="row" style={{ gap: 8 }}>
+              <Icon
+                name="chevron"
+                size={13}
+                className="chevron-icon"
+                style={{ transform: expandedId === c.id ? "rotate(90deg)" : "none" }}
+              />
+              <span>{c.name}</span>
+            </div>
             <div className="feed-meta">{c.slug}</div>
           </div>
 
           {expandedId === c.id && detail && (
-            <div style={{ padding: "10px 0 10px 16px", borderLeft: "2px solid var(--border)" }}>
+            <div className="nested">
               <div className="row" style={{ justifyContent: "space-between", marginBottom: 12, alignItems: "flex-end" }}>
                 {editingClientId === c.id ? (
                   <>
@@ -378,16 +386,23 @@ export default function Clients() {
                     style={{ cursor: "pointer" }}
                     onClick={() => toggleDeployment(c.id, d.id)}
                   >
-                    <div>
-                      {d.label} <span className="feed-source">{d.environment}</span>
-                      {d.jira_project_key && ` · Jira ${d.jira_project_key}`}
-                      {d.github_repo && ` · ${d.github_repo}`}
+                    <div className="row" style={{ gap: 8 }}>
+                      <Icon
+                        name="chevron"
+                        size={13}
+                        className="chevron-icon"
+                        style={{ transform: expandedDeploymentId === d.id ? "rotate(90deg)" : "none" }}
+                      />
+                      <span>{d.label}</span>
+                      <span className={"tag" + (d.environment === "production" ? " warn" : "")}>{d.environment}</span>
+                      {d.jira_project_key && <span className="tag">Jira {d.jira_project_key}</span>}
+                      {d.github_repo && <span className="tag">{d.github_repo}</span>}
                     </div>
                     <div className="feed-meta">id {d.id}</div>
                   </div>
 
                   {expandedDeploymentId === d.id && deploymentDetail && (
-                    <div style={{ padding: "10px 0 10px 16px", borderLeft: "2px solid var(--border)" }}>
+                    <div className="nested">
                       <div className="row" style={{ justifyContent: "space-between", marginBottom: 12, alignItems: "flex-end" }}>
                         {editingDeploymentId === d.id ? (
                           <>
@@ -459,9 +474,7 @@ export default function Clients() {
                         </p>
                       )}
 
-                      <p className="pm-section h3" style={{ marginTop: 12, marginBottom: 6 }}>
-                        Diagnostic bundles
-                      </p>
+                      <p className="subheading">Diagnostic bundles</p>
                       {bundles.length === 0 && <p className="placeholder">None uploaded yet.</p>}
                       {bundles.map((b) => (
                         <div className="feed-row" key={b.id}>
@@ -496,9 +509,7 @@ export default function Clients() {
                         </button>
                       </form>
 
-                      <p className="pm-section h3" style={{ marginTop: 16, marginBottom: 6 }}>
-                        Recent investigations
-                      </p>
+                      <p className="subheading">Recent investigations</p>
                       {deploymentDetail.recent_investigations.length === 0 && (
                         <p className="placeholder">None yet.</p>
                       )}
@@ -559,9 +570,7 @@ export default function Clients() {
                 </button>
               </div>
 
-              <p className="pm-section h3" style={{ marginTop: 20, marginBottom: 6 }}>
-                Integration overrides
-              </p>
+              <p className="subheading">Integration overrides</p>
               <p className="placeholder" style={{ marginTop: 0 }}>
                 Credentials this client's own deployments use instead of the shared global default, when an
                 investigation is scoped to one of this client's deployments. Configure the shared default on the{" "}
@@ -570,25 +579,15 @@ export default function Clients() {
               {clientIntegrations.map((i) => (
                 <div key={i.name}>
                   <div className="feed-row">
-                    <div>
+                    <div className="row" style={{ gap: 8 }}>
                       <span className="feed-source">{i.name}</span>
-                      {" — "}
-                      <span className={i.configured ? "" : "placeholder"}>
+                      <span className={"badge " + (i.configured ? "ok" : "warn")}>
                         {i.configured ? "configured" : "not configured"}
                       </span>
-                      {i.override && (
-                        <span className="feed-meta" style={{ marginLeft: 8 }}>· using this client's own override</span>
-                      )}
-                      {!i.override && i.using_global_default && (
-                        <span className="feed-meta" style={{ marginLeft: 8 }}>· using shared global default</span>
-                      )}
+                      {i.override && <span className="tag accent">client override</span>}
+                      {!i.override && i.using_global_default && <span className="tag">shared default</span>}
                       {integrationTestResults[i.name] && (
-                        <span
-                          style={{
-                            marginLeft: 10,
-                            color: integrationTestResults[i.name].ok ? "var(--ok)" : "var(--err)",
-                          }}
-                        >
+                        <span style={{ color: integrationTestResults[i.name].ok ? "var(--ok)" : "var(--err)" }}>
                           {integrationTestResults[i.name].detail}
                         </span>
                       )}

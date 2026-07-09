@@ -1,0 +1,43 @@
+name: evals
+
+# Manual only: agent/evals/run.py drives the real agent loop against a live
+# Anthropic API (fault injection + LLM-as-judge scoring), so every run costs
+# real money. Not wired to push/pull_request -- run this by hand before
+# merging a prompt/tool-schema change to check for quality regressions.
+on:
+  workflow_dispatch: {}
+
+jobs:
+  evals:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Configure environment
+        run: |
+          cp .env.example .env 2>/dev/null || touch .env
+          echo "ANTHROPIC_API_KEY=${{ secrets.ANTHROPIC_API_KEY }}" >> .env
+
+      - name: Start stack
+        run: docker compose up -d --build
+
+      - name: Wait for agent to be healthy
+        run: |
+          for i in $(seq 1 30); do
+            curl -sf http://localhost:8085/ && exit 0
+            sleep 5
+          done
+          echo "agent did not become healthy in time" >&2
+          docker compose logs
+          exit 1
+
+      - name: Run evals
+        run: docker compose exec -T agent python -m evals.run
+
+      - name: Dump logs on failure
+        if: failure()
+        run: docker compose logs
+
+      - name: Tear down
+        if: always()
+        run: docker compose down -v

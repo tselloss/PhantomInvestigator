@@ -78,6 +78,7 @@ export default function Investigations() {
           >
             <option value="">All statuses</option>
             <option value="running">Running</option>
+            <option value="awaiting_approval">Awaiting approval</option>
             <option value="done">Done</option>
             <option value="partial">Partial</option>
             <option value="error">Error</option>
@@ -103,7 +104,7 @@ export default function Investigations() {
         </div>
       </div>
 
-      {error && <p className="placeholder">Couldn't load investigations: {error}</p>}
+      {error && <div className="alert err">Couldn't load investigations: {error}</div>}
       {!error && items.length === 0 && (
         <div className="empty-state">
           <Icon name="inbox" size={30} />
@@ -124,8 +125,8 @@ export default function Investigations() {
             {" — "}
             {it.alert_text.length > 80 ? it.alert_text.slice(0, 80) + "…" : it.alert_text}
             {it.reviewed && (
-              <span style={{ color: "var(--ok)", marginLeft: 8, display: "inline-flex", alignItems: "center", gap: 4 }}>
-                <Icon name="check" size={12} /> reviewed
+              <span className="badge ok" style={{ marginLeft: 8 }}>
+                reviewed
               </span>
             )}
           </div>

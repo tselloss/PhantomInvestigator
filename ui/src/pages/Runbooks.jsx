@@ -38,8 +38,8 @@ export default function Runbooks() {
 
   return (
     <section>
-      <div className="row" style={{ justifyContent: "space-between" }}>
-        <h2 style={{ margin: 0 }}>Runbooks</h2>
+      <div className="section-head">
+        <h2>Runbooks</h2>
         <button className="primary" disabled={ingesting} onClick={ingest}>
           <Icon name="book" size={14} />
           {ingesting ? "Ingesting…" : "Re-ingest"}
@@ -47,12 +47,12 @@ export default function Runbooks() {
       </div>
 
       {ingestResult && (
-        <p className="placeholder">
+        <div className={"alert " + (ingestResult.error ? "err" : "ok")}>
           {ingestResult.error ? `Ingest failed: ${ingestResult.error}` : `Embedded ${ingestResult.embedded_chunks} new chunks.`}
-        </p>
+        </div>
       )}
 
-      {error && <p className="placeholder">Couldn't load runbooks: {error}</p>}
+      {error && <div className="alert err">Couldn't load runbooks: {error}</div>}
       {!error && runbooks.length === 0 && (
         <div className="empty-state">
           <Icon name="book" size={30} />
@@ -63,7 +63,7 @@ export default function Runbooks() {
       {runbooks.map((rb) => (
         <div className="feed-row" key={rb.title}>
           <div>{rb.title}</div>
-          <div className="feed-meta">{rb.chunk_count} chunks</div>
+          <span className="tag">{rb.chunk_count} chunks</span>
         </div>
       ))}
     </section>

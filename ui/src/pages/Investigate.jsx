@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import Icon from "../components/Icon";
+import CircularText from "../components/CircularText";
 import PostmortemView from "../components/PostmortemView";
 import { composeAlertText } from "../lib/composeAlertText";
 
@@ -116,10 +117,13 @@ export default function Investigate() {
       </p>
 
       {!aiConfigured && (
-        <p style={{ color: "var(--warn)", fontSize: 13.5, margin: "10px 0 0" }}>
-          No AI provider key configured — add one in{" "}
-          <Link to="/settings/integrations">Settings → Integrations</Link> before running an investigation.
-        </p>
+        <div className="alert warn">
+          <Icon name="zap" size={15} />
+          <span>
+            No AI provider key configured — add one in <Link to="/settings/integrations">Settings → Integrations</Link>{" "}
+            before running an investigation.
+          </span>
+        </div>
       )}
 
       <div className="row" style={{ marginTop: 14 }}>
@@ -194,16 +198,25 @@ export default function Investigate() {
           Investigate
         </button>
         {uploadingScreenshot && <span className="spinner">Analyzing screenshot…</span>}
-        {running && !uploadingScreenshot && <span className="spinner">Investigating… this can take 20–60s</span>}
       </div>
 
       {screenshotNotice && (
-        <p className="placeholder" style={{ marginTop: 8 }}>
-          {screenshotNotice}
-        </p>
+        <div className="alert warn">
+          <Icon name="inbox" size={15} />
+          <span>{screenshotNotice}</span>
+        </div>
       )}
 
       <div style={{ marginTop: 16 }}>
+        {running && log.length === 0 && (
+          <div className="empty-state" style={{ border: "none" }}>
+            <CircularText text="INVESTIGATING • GATHERING EVIDENCE • " spinDuration={9} onHover="pause">
+              <Icon name="search" size={22} />
+            </CircularText>
+            <p style={{ marginTop: 18 }}>This can take 20–60s…</p>
+          </div>
+        )}
+
         {log.length > 0 && (
           <div className="stream-log">
             {log.map((line, i) => (
@@ -214,7 +227,7 @@ export default function Investigate() {
           </div>
         )}
 
-        {!final && log.length === 0 && (
+        {!running && !final && log.length === 0 && (
           <div className="empty-state">
             <Icon name="search" size={28} />
             <p>Enter what you know, or attach a screenshot, then click Investigate.</p>
@@ -222,11 +235,14 @@ export default function Investigate() {
         )}
 
         {final && final.deduped && (
-          <p style={{ color: "var(--ok)", fontSize: 13, margin: "0 0 12px" }}>
-            Same alert was already investigated recently — reused{" "}
-            <Link to={`/investigations/${final.investigation_id}`}>that result</Link> instead of spending AI tokens
-            on a repeat run.
-          </p>
+          <div className="alert ok" style={{ marginTop: 0, marginBottom: 12 }}>
+            <Icon name="check" size={15} />
+            <span>
+              Same alert was already investigated recently — reused{" "}
+              <Link to={`/investigations/${final.investigation_id}`}>that result</Link> instead of spending AI tokens
+              on a repeat run.
+            </span>
+          </div>
         )}
 
         {final && final.postmortem && <PostmortemView pm={final.postmortem} />}

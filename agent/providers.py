@@ -68,13 +68,27 @@ class AnthropicProvider:
         self.model = model
 
     def step(self, system: str, tools: list[dict], messages: list[dict]) -> dict:
+        # Both the system prompt and TOOL_SCHEMAS are identical on every step
+        # of a run (and across runs, until the prompt/tools change) -- marking
+        # the last block of each with cache_control caches everything up to
+        # and including it, so steps 2+ of a multi-step investigation read
+        # this from cache instead of paying full input price for it again.
+        cached_system = [{"type": "text", "text": system, "cache_control": {"type": "ephemeral"}}]
+        cached_tools = tools
+        if tools:
+            cached_tools = [*tools[:-1], {**tools[-1], "cache_control": {"type": "ephemeral"}}]
         resp = self.client.messages.create(
-            model=self.model, max_tokens=2000, system=system, tools=tools, messages=messages,
+            model=self.model, max_tokens=2000, system=cached_system, tools=cached_tools, messages=messages,
         )
         return {
             "blocks": [b.model_dump() for b in resp.content],
             "stop_reason": resp.stop_reason,
-            "usage": {"input_tokens": resp.usage.input_tokens, "output_tokens": resp.usage.output_tokens},
+            "usage": {
+                "input_tokens": resp.usage.input_tokens,
+                "output_tokens": resp.usage.output_tokens,
+                "cache_creation_input_tokens": resp.usage.cache_creation_input_tokens or 0,
+                "cache_read_input_tokens": resp.usage.cache_read_input_tokens or 0,
+            },
         }
 
     def append_assistant(self, messages: list[dict], blocks: list[dict]) -> None:
@@ -191,6 +205,11 @@ class OpenAIProvider:
             "usage": {
                 "input_tokens": usage.prompt_tokens if usage else 0,
                 "output_tokens": usage.completion_tokens if usage else 0,
+                # OpenAI caches automatically server-side with no separate
+                # accounting exposed here -- these stay 0 so loop.py's cost
+                # math has one shape to deal with regardless of provider.
+                "cache_creation_input_tokens": 0,
+                "cache_read_input_tokens": 0,
             },
         }
 

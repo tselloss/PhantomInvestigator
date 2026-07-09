@@ -11,11 +11,36 @@ MAX_STEPS = int(os.environ.get("MAX_AGENT_STEPS", 10))
 # Treated as USD for simplicity — no FX conversion, just a spend guardrail.
 MAX_COST_PER_RUN = float(os.environ.get("MAX_COST_EUR_PER_RUN", 0.50))
 
-# Haiku 4.5 pricing, per 1M tokens — the default (Anthropic) provider's
-# model. BYOK providers/models are billed to the operator's own account, so
-# this is only a rough cost estimate for anything other than the default.
-INPUT_COST_PER_1M = 1.00
-OUTPUT_COST_PER_1M = 5.00
+# Per-1M-token USD pricing by model, used only to *estimate* cost_usd for
+# display/budgeting — BYOK providers/models are billed to the operator's own
+# account regardless. cache_write/cache_read apply to Anthropic's prompt
+# caching (see providers.AnthropicProvider.step()); OpenAI caches
+# automatically server-side with no separate token accounting exposed, so
+# those stay 0 for its models. A model not listed here (e.g. a custom
+# openai_compatible BYOK endpoint) gets no cost estimate rather than a
+# silently wrong one borrowed from an unrelated model.
+MODEL_PRICING_PER_1M = {
+    "claude-haiku-4-5": {"input": 1.00, "output": 5.00, "cache_write": 1.25, "cache_read": 0.10},
+    "claude-sonnet-5": {"input": 3.00, "output": 15.00, "cache_write": 3.75, "cache_read": 0.30},
+    "claude-opus-4-8": {"input": 15.00, "output": 75.00, "cache_write": 18.75, "cache_read": 1.50},
+    "gpt-4o-mini": {"input": 0.15, "output": 0.60, "cache_write": 0.0, "cache_read": 0.0},
+    "gpt-4o": {"input": 2.50, "output": 10.00, "cache_write": 0.0, "cache_read": 0.0},
+}
+
+
+def _estimate_cost_usd(
+    model: str, input_tokens: int, output_tokens: int, cache_write_tokens: int, cache_read_tokens: int
+) -> float | None:
+    pricing = MODEL_PRICING_PER_1M.get(model)
+    if pricing is None:
+        return None
+    return round(
+        input_tokens / 1_000_000 * pricing["input"]
+        + output_tokens / 1_000_000 * pricing["output"]
+        + cache_write_tokens / 1_000_000 * pricing["cache_write"]
+        + cache_read_tokens / 1_000_000 * pricing["cache_read"],
+        4,
+    )
 
 langfuse = get_client()
 
@@ -51,10 +76,18 @@ def _run_agent_loop_stream(alert_text: str, owner_user_id: int, deployment_id: i
     messages = [{"role": "user", "content": f"Incident alert: {alert_text}. Investigate."}]
     input_tokens = 0
     output_tokens = 0
-    usage = {"input_tokens": 0, "output_tokens": 0, "cost_usd": 0.0}
+    cache_write_tokens = 0
+    cache_read_tokens = 0
+    usage = {
+        "input_tokens": 0, "output_tokens": 0,
+        "cache_write_tokens": 0, "cache_read_tokens": 0,
+        "cost_usd": 0.0, "cost_estimated": True,
+    }
 
     for step in range(1, MAX_STEPS + 1):
-        if usage["cost_usd"] >= MAX_COST_PER_RUN:
+        # An unpriced (unknown) model can't be budget-capped in USD terms;
+        # MAX_STEPS is the only guardrail left for it in that case.
+        if usage["cost_usd"] is not None and usage["cost_usd"] >= MAX_COST_PER_RUN:
             yield {"type": "final", "data": {
                 "steps": step - 1,
                 "result": f"Stopped: budget cap (${MAX_COST_PER_RUN:.2f}) reached after {step - 1} steps.",
@@ -78,14 +111,16 @@ def _run_agent_loop_stream(alert_text: str, owner_user_id: int, deployment_id: i
 
         input_tokens += result["usage"]["input_tokens"]
         output_tokens += result["usage"]["output_tokens"]
+        cache_write_tokens += result["usage"].get("cache_creation_input_tokens", 0)
+        cache_read_tokens += result["usage"].get("cache_read_input_tokens", 0)
+        cost_usd = _estimate_cost_usd(provider.model, input_tokens, output_tokens, cache_write_tokens, cache_read_tokens)
         usage = {
             "input_tokens": input_tokens,
             "output_tokens": output_tokens,
-            "cost_usd": round(
-                input_tokens / 1_000_000 * INPUT_COST_PER_1M
-                + output_tokens / 1_000_000 * OUTPUT_COST_PER_1M,
-                4,
-            ),
+            "cache_write_tokens": cache_write_tokens,
+            "cache_read_tokens": cache_read_tokens,
+            "cost_usd": cost_usd,
+            "cost_estimated": cost_usd is not None,
         }
 
         if result["stop_reason"] != "tool_use":
