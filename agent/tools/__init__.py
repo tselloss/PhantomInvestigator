@@ -3,8 +3,19 @@
 Tool descriptions are 50% of your prompt engineering — write them like
 you're onboarding a junior SRE.
 """
-from . import prometheus, loki, deploys, runbooks, jira, github_actions, azure_monitor, aws_cloudwatch
+from . import prometheus, loki, deploys, runbooks, jira, github_actions, azure_monitor, aws_cloudwatch, azure_devops, diagnostics, version_registry
 from schemas import Postmortem
+
+DEPLOYMENT_ID_PROPERTY = {
+    "type": ["integer", "null"],
+    "description": (
+        "This investigation's deployment id, if the alert mentions one (e.g. "
+        "'Deployment: Acme Corp / prod (id 42)'). Passing it lets this call use "
+        "that deployment's client-specific credential override, if one is "
+        "configured, instead of the shared default -- always include it when "
+        "the alert names a deployment."
+    ),
+}
 
 TOOL_SCHEMAS = [
     {
@@ -17,7 +28,10 @@ TOOL_SCHEMAS = [
         ),
         "input_schema": {
             "type": "object",
-            "properties": {"promql": {"type": "string"}},
+            "properties": {
+                "promql": {"type": "string"},
+                "deployment_id": DEPLOYMENT_ID_PROPERTY,
+            },
             "required": ["promql"],
         },
     },
@@ -39,6 +53,7 @@ TOOL_SCHEMAS = [
             "properties": {
                 "logql": {"type": "string"},
                 "minutes": {"type": "integer", "default": 5},
+                "deployment_id": DEPLOYMENT_ID_PROPERTY,
             },
             "required": ["logql"],
         },
@@ -66,8 +81,47 @@ TOOL_SCHEMAS = [
         ),
         "input_schema": {
             "type": "object",
-            "properties": {"key": {"type": "string", "description": "Jira issue key, e.g. 'OPS-123'"}},
+            "properties": {
+                "key": {"type": "string", "description": "Jira issue key, e.g. 'OPS-123'"},
+                "deployment_id": DEPLOYMENT_ID_PROPERTY,
+            },
             "required": ["key"],
+        },
+    },
+    {
+        "name": "get_azure_devops_work_item",
+        "description": (
+            "Fetch an Azure Boards work item (User Story/Task/Bug) by its numeric id: title, "
+            "type, state, description, and recent comments. Use this when the alert references "
+            "a specific work item id -- it usually has the original symptom report and any "
+            "follow-up context, the same role a Jira ticket plays for Jira-triggered incidents."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "work_item_id": {"type": "integer", "description": "Azure DevOps work item id, e.g. 4821"},
+                "deployment_id": DEPLOYMENT_ID_PROPERTY,
+            },
+            "required": ["work_item_id"],
+        },
+    },
+    {
+        "name": "post_azure_devops_comment",
+        "description": (
+            "Post a comment onto an Azure Boards work item -- a real, visible write action, not a "
+            "draft. Only call this for the SAME work item id the alert referenced (from "
+            "get_azure_devops_work_item), and only once you have your findings ready: no further "
+            "tool calls run after submit_postmortem is received, so call this before or in the "
+            "same turn as submit_postmortem, not after."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "work_item_id": {"type": "integer"},
+                "comment": {"type": "string", "description": "Plain text -- root cause and suggested fix"},
+                "deployment_id": DEPLOYMENT_ID_PROPERTY,
+            },
+            "required": ["work_item_id", "comment"],
         },
     },
     {
@@ -75,7 +129,10 @@ TOOL_SCHEMAS = [
         "description": "List the most recent GitHub Actions workflow runs for a repo, with status/conclusion/branch/sha. Check this for CI-triggered incidents.",
         "input_schema": {
             "type": "object",
-            "properties": {"repo": {"type": "string", "description": "'owner/name', e.g. 'tselloss/PhantomInvestigator'"}},
+            "properties": {
+                "repo": {"type": "string", "description": "'owner/name', e.g. 'tselloss/PhantomInvestigator'"},
+                "deployment_id": DEPLOYMENT_ID_PROPERTY,
+            },
             "required": ["repo"],
         },
     },
@@ -87,6 +144,7 @@ TOOL_SCHEMAS = [
             "properties": {
                 "repo": {"type": "string"},
                 "run_id": {"type": "integer"},
+                "deployment_id": DEPLOYMENT_ID_PROPERTY,
             },
             "required": ["repo", "run_id"],
         },
@@ -104,6 +162,7 @@ TOOL_SCHEMAS = [
                 "repo": {"type": "string"},
                 "base": {"type": "string"},
                 "head": {"type": "string"},
+                "deployment_id": DEPLOYMENT_ID_PROPERTY,
             },
             "required": ["repo", "base", "head"],
         },
@@ -113,7 +172,10 @@ TOOL_SCHEMAS = [
         "description": "Run a KQL query against the configured Azure Log Analytics workspace. Use for incidents on Azure-hosted infra.",
         "input_schema": {
             "type": "object",
-            "properties": {"kql": {"type": "string"}},
+            "properties": {
+                "kql": {"type": "string"},
+                "deployment_id": DEPLOYMENT_ID_PROPERTY,
+            },
             "required": ["kql"],
         },
     },
@@ -126,6 +188,7 @@ TOOL_SCHEMAS = [
                 "resource_id": {"type": "string", "description": "Full Azure resource ID"},
                 "metric_namespace": {"type": "string", "description": "e.g. 'Microsoft.Compute/virtualMachines'"},
                 "metric_names": {"type": "string", "description": "Comma-separated metric names"},
+                "deployment_id": DEPLOYMENT_ID_PROPERTY,
             },
             "required": ["resource_id", "metric_namespace", "metric_names"],
         },
@@ -139,6 +202,7 @@ TOOL_SCHEMAS = [
                 "log_group": {"type": "string"},
                 "filter_pattern": {"type": "string"},
                 "minutes": {"type": "integer", "default": 15},
+                "deployment_id": DEPLOYMENT_ID_PROPERTY,
             },
             "required": ["log_group", "filter_pattern"],
         },
@@ -152,8 +216,83 @@ TOOL_SCHEMAS = [
                 "namespace": {"type": "string", "description": "e.g. 'AWS/EC2', 'AWS/RDS'"},
                 "metric_name": {"type": "string", "description": "e.g. 'CPUUtilization'"},
                 "dimensions_json": {"type": "string", "description": "JSON array, e.g. '[{\"Name\": \"InstanceId\", \"Value\": \"i-123\"}]'"},
+                "deployment_id": DEPLOYMENT_ID_PROPERTY,
             },
             "required": ["namespace", "metric_name"],
+        },
+    },
+    {
+        "name": "search_diagnostic_bundle",
+        "description": (
+            "Search uploaded diagnostic bundles (logs/metrics/config excerpts a support "
+            "engineer submitted on the client's behalf) for a regex or substring. Use this "
+            "for incidents on client infrastructure with no direct query access -- when "
+            "query_metrics/search_logs/query_azure_*/query_aws_* aren't reachable."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "deployment_id": {"type": "integer"},
+                "query": {"type": "string"},
+            },
+            "required": ["deployment_id", "query"],
+        },
+    },
+    {
+        "name": "get_diagnostic_bundle_summary",
+        "description": "List what diagnostic bundles (if any) have been uploaded for a deployment, and what each contains.",
+        "input_schema": {
+            "type": "object",
+            "properties": {"deployment_id": {"type": "integer"}},
+            "required": ["deployment_id"],
+        },
+    },
+    {
+        "name": "get_deployment_profile",
+        "description": (
+            "Look up everything on record for a deployment: its latest known version/build and how it was "
+            "learned (self-report, uploaded bundle, or reconstructed from a past investigation). Call this "
+            "FIRST whenever the alert mentions a deployment id -- don't assume nothing is known."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {"deployment_id": {"type": "integer"}},
+            "required": ["deployment_id"],
+        },
+    },
+    {
+        "name": "diff_against_known_release",
+        "description": (
+            "Compare a deployment's latest known version/build against the vendor's own release catalog and "
+            "report what deviates from stock (different build, local patches, changed config fields). Use "
+            "after get_deployment_profile shows a known version, to check whether this instance has drifted."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {"deployment_id": {"type": "integer"}},
+            "required": ["deployment_id"],
+        },
+    },
+    {
+        "name": "record_version_fingerprint",
+        "description": (
+            "Record a best-effort reconstruction of a deployment's version/build/drift when nothing was "
+            "previously known (black-box case). Call this as soon as you establish ANY fact, even a "
+            "low-confidence guess -- do not wait until submit_postmortem, since an investigation can end "
+            "on the step/cost budget before reaching it. This is what turns 'nobody knows' into a permanent "
+            "record the NEXT investigation for this deployment will see via get_deployment_profile."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "deployment_id": {"type": "integer"},
+                "probable_version": {"type": ["string", "null"], "description": "Best guess, e.g. '1.4.x' if exact patch version is unclear"},
+                "probable_build_sha": {"type": ["string", "null"]},
+                "drift_notes": {"type": "string", "description": "JSON-encoded list of strings describing suspected deviations from stock"},
+                "confidence": {"type": "number", "description": "0-1, calibrated to how solid the reconstruction evidence actually is"},
+                "source_investigation_id": {"type": ["integer", "null"], "description": "This investigation's id, if mentioned in the alert text"},
+            },
+            "required": ["deployment_id", "drift_notes", "confidence"],
         },
     },
     {
@@ -167,23 +306,39 @@ TOOL_SCHEMAS = [
     },
 ]
 
-def execute_tool(name: str, args: dict) -> str:
+def execute_tool(name: str, args: dict, owner_user_id: int) -> str:
     """Dispatch. ALWAYS return a string, even on failure (models recover from
-    error text; they cannot recover from your process crashing)."""
+    error text; they cannot recover from your process crashing). owner_user_id
+    is the CURRENT investigation's owner -- passed by loop.py directly, never
+    read from `args` (which is model-controlled), so it can't be spoofed by a
+    prompt-injected or hallucinated tool call. It's what keeps a deployment_id
+    belonging to a different user from ever resolving to that user's stored
+    credentials/data (see integration_credentials.resolve_credentials)."""
     try:
         match name:
-            case "query_metrics":     return prometheus.query(args["promql"])
-            case "search_logs":       return loki.search(args["logql"], args.get("minutes", 15))
+            case "query_metrics":     return prometheus.query(args["promql"], owner_user_id, deployment_id=args.get("deployment_id"))
+            case "search_logs":       return loki.search(args["logql"], owner_user_id, args.get("minutes", 5), deployment_id=args.get("deployment_id"))
             case "get_recent_changes":return deploys.latest_diff()
-            case "search_runbooks":   return runbooks.search(args["query"])
-            case "get_jira_ticket":   return jira.get_ticket(args["key"])
-            case "get_github_runs":   return github_actions.get_recent_runs(args["repo"])
-            case "get_github_run_logs": return github_actions.get_run_logs(args["repo"], args["run_id"])
-            case "get_deploy_diff":   return github_actions.get_deploy_diff(args["repo"], args["base"], args["head"])
-            case "query_azure_logs":  return azure_monitor.query_logs(args["kql"])
-            case "query_azure_metrics": return azure_monitor.query_metrics(args["resource_id"], args["metric_namespace"], args["metric_names"])
-            case "query_aws_logs":    return aws_cloudwatch.query_logs(args["log_group"], args["filter_pattern"], args.get("minutes", 15))
-            case "query_aws_metrics": return aws_cloudwatch.query_metrics(args["namespace"], args["metric_name"], args.get("dimensions_json", "[]"))
+            case "search_runbooks":   return runbooks.search(args["query"], owner_user_id)
+            case "get_jira_ticket":   return jira.get_ticket(args["key"], owner_user_id, deployment_id=args.get("deployment_id"))
+            case "get_azure_devops_work_item": return azure_devops.get_work_item(args["work_item_id"], owner_user_id, deployment_id=args.get("deployment_id"))
+            case "post_azure_devops_comment": return azure_devops.post_comment(args["work_item_id"], args["comment"], owner_user_id, deployment_id=args.get("deployment_id"))
+            case "get_github_runs":   return github_actions.get_recent_runs(args["repo"], owner_user_id, deployment_id=args.get("deployment_id"))
+            case "get_github_run_logs": return github_actions.get_run_logs(args["repo"], args["run_id"], owner_user_id, deployment_id=args.get("deployment_id"))
+            case "get_deploy_diff":   return github_actions.get_deploy_diff(args["repo"], args["base"], args["head"], owner_user_id, deployment_id=args.get("deployment_id"))
+            case "query_azure_logs":  return azure_monitor.query_logs(args["kql"], owner_user_id, deployment_id=args.get("deployment_id"))
+            case "query_azure_metrics": return azure_monitor.query_metrics(args["resource_id"], args["metric_namespace"], args["metric_names"], owner_user_id, deployment_id=args.get("deployment_id"))
+            case "query_aws_logs":    return aws_cloudwatch.query_logs(args["log_group"], args["filter_pattern"], owner_user_id, args.get("minutes", 15), deployment_id=args.get("deployment_id"))
+            case "query_aws_metrics": return aws_cloudwatch.query_metrics(args["namespace"], args["metric_name"], owner_user_id, args.get("dimensions_json", "[]"), deployment_id=args.get("deployment_id"))
+            case "search_diagnostic_bundle": return diagnostics.search_diagnostic_bundle(args["deployment_id"], args["query"], owner_user_id)
+            case "get_diagnostic_bundle_summary": return diagnostics.get_diagnostic_bundle_summary(args["deployment_id"], owner_user_id)
+            case "get_deployment_profile": return version_registry.get_deployment_profile(args["deployment_id"], owner_user_id)
+            case "diff_against_known_release": return version_registry.diff_against_known_release(args["deployment_id"], owner_user_id)
+            case "record_version_fingerprint":
+                return version_registry.record_version_fingerprint(
+                    args["deployment_id"], args.get("probable_version"), args.get("probable_build_sha"),
+                    args["drift_notes"], args["confidence"], owner_user_id, args.get("source_investigation_id"),
+                )
             case _:                   return f"ERROR: unknown tool {name}"
     except Exception as e:
         return f"ERROR: {type(e).__name__}: {e}"

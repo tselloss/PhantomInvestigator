@@ -1,0 +1,658 @@
+import { useEffect, useState } from "react";
+import { Link } from "react-router-dom";
+import Icon from "../components/Icon";
+
+function slugify(name) {
+  return name.trim().toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/(^-|-$)/g, "");
+}
+
+export default function Clients() {
+  const [clients, setClients] = useState([]);
+  const [error, setError] = useState(null);
+  const [name, setName] = useState("");
+  const [creating, setCreating] = useState(false);
+
+  const [expandedId, setExpandedId] = useState(null);
+  const [detail, setDetail] = useState(null);
+  const [deployLabel, setDeployLabel] = useState("");
+  const [deployEnv, setDeployEnv] = useState("production");
+  const [deployJira, setDeployJira] = useState("");
+  const [deployRepo, setDeployRepo] = useState("");
+
+  const [editingClientId, setEditingClientId] = useState(null);
+  const [editClientName, setEditClientName] = useState("");
+  const [editClientNotes, setEditClientNotes] = useState("");
+  const [savingClient, setSavingClient] = useState(false);
+  const [confirmArchiveClientId, setConfirmArchiveClientId] = useState(null);
+
+  const [expandedDeploymentId, setExpandedDeploymentId] = useState(null);
+  const [deploymentDetail, setDeploymentDetail] = useState(null);
+  const [bundles, setBundles] = useState([]);
+  const [uploading, setUploading] = useState(false);
+
+  const [editingDeploymentId, setEditingDeploymentId] = useState(null);
+  const [editDeployLabel, setEditDeployLabel] = useState("");
+  const [editDeployEnv, setEditDeployEnv] = useState("production");
+  const [editDeployJira, setEditDeployJira] = useState("");
+  const [editDeployRepo, setEditDeployRepo] = useState("");
+  const [savingDeployment, setSavingDeployment] = useState(false);
+  const [confirmArchiveDeploymentId, setConfirmArchiveDeploymentId] = useState(null);
+
+  const [integrationFieldSchema, setIntegrationFieldSchema] = useState({});
+  const [clientIntegrations, setClientIntegrations] = useState([]);
+  const [editingIntegration, setEditingIntegration] = useState(null);
+  const [integrationFormValues, setIntegrationFormValues] = useState({});
+  const [savingIntegration, setSavingIntegration] = useState(false);
+  const [integrationSaveError, setIntegrationSaveError] = useState(null);
+  const [testingIntegration, setTestingIntegration] = useState(null);
+  const [integrationTestResults, setIntegrationTestResults] = useState({});
+
+  async function loadClients() {
+    try {
+      const res = await fetch("/api/clients");
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      setClients(await res.json());
+    } catch (e) {
+      setError(e.message);
+    }
+  }
+
+  useEffect(() => {
+    loadClients();
+    fetch("/api/settings/integrations/fields")
+      .then((res) => res.json())
+      .then(setIntegrationFieldSchema);
+  }, []);
+
+  async function createClient() {
+    if (!name.trim()) return;
+    setCreating(true);
+    try {
+      await fetch("/api/clients", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name, slug: slugify(name) }),
+      });
+      setName("");
+      await loadClients();
+    } finally {
+      setCreating(false);
+    }
+  }
+
+  async function toggleExpand(clientId) {
+    if (expandedId === clientId) {
+      setExpandedId(null);
+      setDetail(null);
+      setClientIntegrations([]);
+      setEditingIntegration(null);
+      setIntegrationTestResults({});
+      return;
+    }
+    setExpandedId(clientId);
+    const [detailRes, integrationsRes] = await Promise.all([
+      fetch(`/api/clients/${clientId}`),
+      fetch(`/api/clients/${clientId}/integrations`),
+    ]);
+    setDetail(await detailRes.json());
+    setClientIntegrations(await integrationsRes.json());
+  }
+
+  async function createDeployment(clientId) {
+    if (!deployLabel.trim()) return;
+    await fetch(`/api/clients/${clientId}/deployments`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        label: deployLabel,
+        environment: deployEnv,
+        jira_project_key: deployJira || null,
+        github_repo: deployRepo || null,
+      }),
+    });
+    setDeployLabel("");
+    setDeployJira("");
+    setDeployRepo("");
+    const res = await fetch(`/api/clients/${clientId}`);
+    setDetail(await res.json());
+  }
+
+  function startEditClient(c) {
+    setEditingClientId(c.id);
+    setEditClientName(c.name);
+    setEditClientNotes(c.notes || "");
+  }
+
+  async function saveClient(clientId) {
+    setSavingClient(true);
+    try {
+      await fetch(`/api/clients/${clientId}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name: editClientName, notes: editClientNotes || null }),
+      });
+      setEditingClientId(null);
+      await loadClients();
+      const res = await fetch(`/api/clients/${clientId}`);
+      setDetail(await res.json());
+    } finally {
+      setSavingClient(false);
+    }
+  }
+
+  async function archiveClient(clientId) {
+    await fetch(`/api/clients/${clientId}`, { method: "DELETE" });
+    setConfirmArchiveClientId(null);
+    if (expandedId === clientId) {
+      setExpandedId(null);
+      setDetail(null);
+    }
+    await loadClients();
+  }
+
+  function startEditIntegration(name) {
+    setEditingIntegration(name);
+    setIntegrationSaveError(null);
+    const blank = {};
+    (integrationFieldSchema[name] || []).forEach((f) => (blank[f.key] = ""));
+    setIntegrationFormValues(blank);
+  }
+
+  function cancelEditIntegration() {
+    setEditingIntegration(null);
+    setIntegrationSaveError(null);
+  }
+
+  async function saveIntegration(clientId, name) {
+    setSavingIntegration(true);
+    setIntegrationSaveError(null);
+    try {
+      const res = await fetch(`/api/clients/${clientId}/integrations/${name}`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(integrationFormValues),
+      });
+      if (!res.ok) {
+        const detail = await res.json().catch(() => ({}));
+        setIntegrationSaveError(detail.detail || `HTTP ${res.status}`);
+        return;
+      }
+      setEditingIntegration(null);
+      const listRes = await fetch(`/api/clients/${clientId}/integrations`);
+      setClientIntegrations(await listRes.json());
+    } finally {
+      setSavingIntegration(false);
+    }
+  }
+
+  async function clearIntegration(clientId, name) {
+    await fetch(`/api/clients/${clientId}/integrations/${name}`, { method: "DELETE" });
+    const listRes = await fetch(`/api/clients/${clientId}/integrations`);
+    setClientIntegrations(await listRes.json());
+  }
+
+  async function testIntegration(clientId, name) {
+    setTestingIntegration(name);
+    try {
+      const res = await fetch(`/api/clients/${clientId}/integrations/${name}/test`, { method: "POST" });
+      const data = await res.json();
+      setIntegrationTestResults((r) => ({ ...r, [name]: data }));
+    } finally {
+      setTestingIntegration(null);
+    }
+  }
+
+  function startEditDeployment(d) {
+    setEditingDeploymentId(d.id);
+    setEditDeployLabel(d.label);
+    setEditDeployEnv(d.environment);
+    setEditDeployJira(d.jira_project_key || "");
+    setEditDeployRepo(d.github_repo || "");
+  }
+
+  async function saveDeployment(clientId, deploymentId) {
+    setSavingDeployment(true);
+    try {
+      await fetch(`/api/clients/${clientId}/deployments/${deploymentId}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          label: editDeployLabel,
+          environment: editDeployEnv,
+          jira_project_key: editDeployJira || null,
+          github_repo: editDeployRepo || null,
+        }),
+      });
+      setEditingDeploymentId(null);
+      const [depRes, clientRes] = await Promise.all([
+        fetch(`/api/clients/${clientId}/deployments/${deploymentId}`),
+        fetch(`/api/clients/${clientId}`),
+      ]);
+      setDeploymentDetail(await depRes.json());
+      setDetail(await clientRes.json());
+    } finally {
+      setSavingDeployment(false);
+    }
+  }
+
+  async function archiveDeployment(clientId, deploymentId) {
+    await fetch(`/api/clients/${clientId}/deployments/${deploymentId}`, { method: "DELETE" });
+    setConfirmArchiveDeploymentId(null);
+    if (expandedDeploymentId === deploymentId) {
+      setExpandedDeploymentId(null);
+      setDeploymentDetail(null);
+      setBundles([]);
+    }
+    const res = await fetch(`/api/clients/${clientId}`);
+    setDetail(await res.json());
+  }
+
+  async function toggleDeployment(clientId, deploymentId) {
+    if (expandedDeploymentId === deploymentId) {
+      setExpandedDeploymentId(null);
+      setDeploymentDetail(null);
+      setBundles([]);
+      return;
+    }
+    setExpandedDeploymentId(deploymentId);
+    const [depRes, bundlesRes] = await Promise.all([
+      fetch(`/api/clients/${clientId}/deployments/${deploymentId}`),
+      fetch(`/api/diagnostics/${deploymentId}`),
+    ]);
+    setDeploymentDetail(await depRes.json());
+    setBundles(await bundlesRes.json());
+  }
+
+  async function uploadBundle(clientId, deploymentId, form) {
+    setUploading(true);
+    try {
+      const data = new FormData(form);
+      data.set("deployment_id", deploymentId);
+      if (!data.get("filename")) data.set("filename", "bundle");
+      await fetch("/api/diagnostics/upload", { method: "POST", body: data });
+      form.reset();
+      const [depRes, bundlesRes] = await Promise.all([
+        fetch(`/api/clients/${clientId}/deployments/${deploymentId}`),
+        fetch(`/api/diagnostics/${deploymentId}`),
+      ]);
+      setDeploymentDetail(await depRes.json());
+      setBundles(await bundlesRes.json());
+    } finally {
+      setUploading(false);
+    }
+  }
+
+  return (
+    <section>
+      <h2>Clients</h2>
+      <p className="placeholder">
+        Each client can run one or more deployments (prod/staging, on-prem or their own cloud). Investigations
+        can be linked to a deployment so version/drift history builds up over time instead of resetting per incident.
+      </p>
+
+      <div className="row" style={{ marginBottom: 16, alignItems: "flex-end" }}>
+        <div className="field grow">
+          <label>New client</label>
+          <input
+            type="text"
+            placeholder="e.g. Acme Corp"
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+            disabled={creating}
+          />
+        </div>
+        <button className="primary" disabled={creating || !name.trim()} onClick={createClient}>
+          <Icon name="plus" size={14} />
+          {creating ? "Adding…" : "Add client"}
+        </button>
+      </div>
+
+      {error && <p className="placeholder">Couldn't load clients: {error}</p>}
+      {!error && clients.length === 0 && (
+        <div className="empty-state">
+          <Icon name="users" size={30} />
+          <p>No clients yet — add one above.</p>
+        </div>
+      )}
+
+      {clients.map((c) => (
+        <div key={c.id} style={{ marginBottom: 8 }}>
+          <div className="feed-row" style={{ cursor: "pointer" }} onClick={() => toggleExpand(c.id)}>
+            <div>{c.name}</div>
+            <div className="feed-meta">{c.slug}</div>
+          </div>
+
+          {expandedId === c.id && detail && (
+            <div style={{ padding: "10px 0 10px 16px", borderLeft: "2px solid var(--border)" }}>
+              <div className="row" style={{ justifyContent: "space-between", marginBottom: 12, alignItems: "flex-end" }}>
+                {editingClientId === c.id ? (
+                  <>
+                    <div className="field">
+                      <label>Name</label>
+                      <input value={editClientName} onChange={(e) => setEditClientName(e.target.value)} />
+                    </div>
+                    <div className="field grow">
+                      <label>Notes</label>
+                      <input
+                        value={editClientNotes}
+                        onChange={(e) => setEditClientNotes(e.target.value)}
+                        placeholder="Optional"
+                      />
+                    </div>
+                    <button
+                      className="primary"
+                      disabled={savingClient || !editClientName.trim()}
+                      onClick={() => saveClient(c.id)}
+                    >
+                      <Icon name="check" size={14} />
+                      {savingClient ? "Saving…" : "Save"}
+                    </button>
+                    <button onClick={() => setEditingClientId(null)}>Cancel</button>
+                  </>
+                ) : (
+                  <>
+                    <p className="placeholder" style={{ margin: 0 }}>{detail.notes || "No notes."}</p>
+                    <div className="row">
+                      <button onClick={() => startEditClient(detail)}>Edit</button>
+                      {confirmArchiveClientId === c.id ? (
+                        <>
+                          <span className="placeholder">Archive this client?</span>
+                          <button className="danger" onClick={() => archiveClient(c.id)}>Confirm</button>
+                          <button onClick={() => setConfirmArchiveClientId(null)}>Cancel</button>
+                        </>
+                      ) : (
+                        <button className="danger" onClick={() => setConfirmArchiveClientId(c.id)}>Archive</button>
+                      )}
+                    </div>
+                  </>
+                )}
+              </div>
+
+              {detail.deployments.length === 0 && (
+                <p className="placeholder" style={{ marginTop: 0 }}>No deployments yet for this client.</p>
+              )}
+              {detail.deployments.map((d) => (
+                <div key={d.id}>
+                  <div
+                    className="feed-row"
+                    style={{ cursor: "pointer" }}
+                    onClick={() => toggleDeployment(c.id, d.id)}
+                  >
+                    <div>
+                      {d.label} <span className="feed-source">{d.environment}</span>
+                      {d.jira_project_key && ` · Jira ${d.jira_project_key}`}
+                      {d.github_repo && ` · ${d.github_repo}`}
+                    </div>
+                    <div className="feed-meta">id {d.id}</div>
+                  </div>
+
+                  {expandedDeploymentId === d.id && deploymentDetail && (
+                    <div style={{ padding: "10px 0 10px 16px", borderLeft: "2px solid var(--border)" }}>
+                      <div className="row" style={{ justifyContent: "space-between", marginBottom: 12, alignItems: "flex-end" }}>
+                        {editingDeploymentId === d.id ? (
+                          <>
+                            <div className="field">
+                              <label>Deployment label</label>
+                              <input value={editDeployLabel} onChange={(e) => setEditDeployLabel(e.target.value)} />
+                            </div>
+                            <div className="field">
+                              <label>Environment</label>
+                              <select value={editDeployEnv} onChange={(e) => setEditDeployEnv(e.target.value)}>
+                                <option value="production">production</option>
+                                <option value="staging">staging</option>
+                              </select>
+                            </div>
+                            <div className="field">
+                              <label>Jira project key</label>
+                              <input
+                                value={editDeployJira}
+                                onChange={(e) => setEditDeployJira(e.target.value)}
+                                placeholder="Optional"
+                              />
+                            </div>
+                            <div className="field">
+                              <label>GitHub repo</label>
+                              <input
+                                value={editDeployRepo}
+                                onChange={(e) => setEditDeployRepo(e.target.value)}
+                                placeholder="Optional"
+                              />
+                            </div>
+                            <button
+                              className="primary"
+                              disabled={savingDeployment || !editDeployLabel.trim()}
+                              onClick={() => saveDeployment(c.id, d.id)}
+                            >
+                              <Icon name="check" size={14} />
+                              {savingDeployment ? "Saving…" : "Save"}
+                            </button>
+                            <button onClick={() => setEditingDeploymentId(null)}>Cancel</button>
+                          </>
+                        ) : (
+                          <div className="row" style={{ marginLeft: "auto" }}>
+                            <button onClick={() => startEditDeployment(d)}>Edit</button>
+                            {confirmArchiveDeploymentId === d.id ? (
+                              <>
+                                <span className="placeholder">Archive this deployment?</span>
+                                <button className="danger" onClick={() => archiveDeployment(c.id, d.id)}>Confirm</button>
+                                <button onClick={() => setConfirmArchiveDeploymentId(null)}>Cancel</button>
+                              </>
+                            ) : (
+                              <button className="danger" onClick={() => setConfirmArchiveDeploymentId(d.id)}>Archive</button>
+                            )}
+                          </div>
+                        )}
+                      </div>
+
+                      <p className="placeholder">
+                        Checkin token (for this instance's self-report webhook): <code>{d.checkin_token}</code>
+                      </p>
+
+                      {deploymentDetail.latest_snapshot ? (
+                        <p className="placeholder">
+                          Latest known version: <strong>{deploymentDetail.latest_snapshot.app_version || "unknown"}</strong>
+                          {" "}({deploymentDetail.latest_snapshot.source}, {new Date(deploymentDetail.latest_snapshot.reported_at).toLocaleString()})
+                        </p>
+                      ) : (
+                        <p className="placeholder">
+                          No version/build info known yet for this deployment — nothing self-reported or uploaded.
+                        </p>
+                      )}
+
+                      <p className="pm-section h3" style={{ marginTop: 12, marginBottom: 6 }}>
+                        Diagnostic bundles
+                      </p>
+                      {bundles.length === 0 && <p className="placeholder">None uploaded yet.</p>}
+                      {bundles.map((b) => (
+                        <div className="feed-row" key={b.id}>
+                          <div>{b.filename}</div>
+                          <div className="feed-meta">{new Date(b.uploaded_at).toLocaleString()}</div>
+                        </div>
+                      ))}
+
+                      <form
+                        className="row"
+                        style={{ marginTop: 12, alignItems: "flex-end" }}
+                        onSubmit={(e) => {
+                          e.preventDefault();
+                          uploadBundle(c.id, d.id, e.target);
+                        }}
+                      >
+                        <div className="field">
+                          <label>Bundle name</label>
+                          <input type="text" name="filename" placeholder="Optional" />
+                        </div>
+                        <div className="field">
+                          <label>Logs</label>
+                          <input type="file" name="logs_file" />
+                        </div>
+                        <div className="field">
+                          <label>Config/manifest</label>
+                          <input type="file" name="config_file" />
+                        </div>
+                        <button className="primary" type="submit" disabled={uploading}>
+                          <Icon name="plus" size={14} />
+                          {uploading ? "Uploading…" : "Upload bundle"}
+                        </button>
+                      </form>
+
+                      <p className="pm-section h3" style={{ marginTop: 16, marginBottom: 6 }}>
+                        Recent investigations
+                      </p>
+                      {deploymentDetail.recent_investigations.length === 0 && (
+                        <p className="placeholder">None yet.</p>
+                      )}
+                      {deploymentDetail.recent_investigations.map((inv) => (
+                        <Link className="feed-row" to={`/investigations/${inv.id}`} key={inv.id}>
+                          <div>
+                            <span className="feed-source">{inv.source}</span>
+                            {inv.source_ref ? ` ${inv.source_ref}` : ""}
+                            {" — "}
+                            {inv.alert_text.length > 70 ? inv.alert_text.slice(0, 70) + "…" : inv.alert_text}
+                          </div>
+                          <div className={"feed-status " + inv.status}>{inv.status}</div>
+                        </Link>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              ))}
+
+              <div className="row" style={{ marginTop: 12, alignItems: "flex-end" }}>
+                <div className="field">
+                  <label>Deployment label</label>
+                  <input
+                    type="text"
+                    placeholder="e.g. prod"
+                    value={deployLabel}
+                    onChange={(e) => setDeployLabel(e.target.value)}
+                  />
+                </div>
+                <div className="field">
+                  <label>Environment</label>
+                  <select value={deployEnv} onChange={(e) => setDeployEnv(e.target.value)}>
+                    <option value="production">production</option>
+                    <option value="staging">staging</option>
+                  </select>
+                </div>
+                <div className="field">
+                  <label>Jira project key</label>
+                  <input
+                    type="text"
+                    placeholder="Optional"
+                    value={deployJira}
+                    onChange={(e) => setDeployJira(e.target.value)}
+                  />
+                </div>
+                <div className="field">
+                  <label>GitHub repo</label>
+                  <input
+                    type="text"
+                    placeholder="Optional"
+                    value={deployRepo}
+                    onChange={(e) => setDeployRepo(e.target.value)}
+                  />
+                </div>
+                <button className="primary" disabled={!deployLabel.trim()} onClick={() => createDeployment(c.id)}>
+                  <Icon name="plus" size={14} />
+                  Add deployment
+                </button>
+              </div>
+
+              <p className="pm-section h3" style={{ marginTop: 20, marginBottom: 6 }}>
+                Integration overrides
+              </p>
+              <p className="placeholder" style={{ marginTop: 0 }}>
+                Credentials this client's own deployments use instead of the shared global default, when an
+                investigation is scoped to one of this client's deployments. Configure the shared default on the{" "}
+                <Link to="/settings/integrations">Integrations</Link> page.
+              </p>
+              {clientIntegrations.map((i) => (
+                <div key={i.name}>
+                  <div className="feed-row">
+                    <div>
+                      <span className="feed-source">{i.name}</span>
+                      {" — "}
+                      <span className={i.configured ? "" : "placeholder"}>
+                        {i.configured ? "configured" : "not configured"}
+                      </span>
+                      {i.override && (
+                        <span className="feed-meta" style={{ marginLeft: 8 }}>· using this client's own override</span>
+                      )}
+                      {!i.override && i.using_global_default && (
+                        <span className="feed-meta" style={{ marginLeft: 8 }}>· using shared global default</span>
+                      )}
+                      {integrationTestResults[i.name] && (
+                        <span
+                          style={{
+                            marginLeft: 10,
+                            color: integrationTestResults[i.name].ok ? "var(--ok)" : "var(--err)",
+                          }}
+                        >
+                          {integrationTestResults[i.name].detail}
+                        </span>
+                      )}
+                    </div>
+                    <div className="row" style={{ gap: 8 }}>
+                      {i.editable && (
+                        <button
+                          onClick={() =>
+                            editingIntegration === i.name ? cancelEditIntegration() : startEditIntegration(i.name)
+                          }
+                        >
+                          {editingIntegration === i.name ? "Cancel" : i.override ? "Edit" : "Set up"}
+                        </button>
+                      )}
+                      {i.override && (
+                        <button className="danger" onClick={() => clearIntegration(c.id, i.name)}>
+                          Clear override
+                        </button>
+                      )}
+                      <button
+                        disabled={!i.configured || testingIntegration === i.name}
+                        onClick={() => testIntegration(c.id, i.name)}
+                      >
+                        {testingIntegration === i.name ? "Testing…" : "Test connection"}
+                      </button>
+                    </div>
+                  </div>
+
+                  {editingIntegration === i.name && (
+                    <div style={{ padding: "4px 0 16px 0" }}>
+                      <div className="row" style={{ alignItems: "flex-end" }}>
+                        {(integrationFieldSchema[i.name] || []).map((f) => (
+                          <div className="field" key={f.key}>
+                            <label>{f.label}</label>
+                            <input
+                              type={f.secret ? "password" : "text"}
+                              placeholder={i.override ? "Leave blank to keep current value" : "Optional"}
+                              value={integrationFormValues[f.key] || ""}
+                              onChange={(e) =>
+                                setIntegrationFormValues((v) => ({ ...v, [f.key]: e.target.value }))
+                              }
+                            />
+                          </div>
+                        ))}
+                        <button
+                          className="primary"
+                          disabled={savingIntegration || !Object.values(integrationFormValues).some((v) => v.trim())}
+                          onClick={() => saveIntegration(c.id, i.name)}
+                        >
+                          <Icon name="check" size={14} />
+                          {savingIntegration ? "Saving…" : "Save"}
+                        </button>
+                      </div>
+                      {integrationSaveError && (
+                        <p style={{ color: "var(--err)", fontSize: 13, margin: "8px 0 0" }}>{integrationSaveError}</p>
+                      )}
+                    </div>
+                  )}
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      ))}
+    </section>
+  );
+}

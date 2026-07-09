@@ -12,8 +12,8 @@ tunnel:        ## expose the agent publicly so Jira/GitHub webhooks can reach it
 load:          ## generate background traffic
 	python scripts/load_generator.py
 
-ingest:        ## embed runbooks into pgvector
-	docker compose exec agent python -m rag.ingest
+ingest:        ## embed runbooks into pgvector for one user -- e.g. make ingest USER_ID=1 (runbooks are per-user; new users get this seeded automatically on registration)
+	docker compose exec agent python -m rag.ingest $(USER_ID)
 
 inject:        ## e.g. make inject FAULT=slow_db
 	curl -s -X POST localhost:8001/faults/$(FAULT) | python -m json.tool

@@ -14,7 +14,7 @@ def _configure(monkeypatch, workspace=True):
 
 def test_query_logs_requires_config(monkeypatch):
     _configure(monkeypatch, workspace=False)
-    assert az.query_logs("Traces | take 5").startswith("ERROR")
+    assert az.query_logs("Traces | take 5", 1).startswith("ERROR")
 
 
 def test_query_logs_formats_rows(monkeypatch):
@@ -29,7 +29,7 @@ def test_query_logs_formats_rows(monkeypatch):
 
     with patch.object(az, "LogsQueryClient") as MockClient:
         MockClient.return_value.query_workspace.return_value = fake_response
-        result = az.query_logs("Traces | take 5")
+        result = az.query_logs("Traces | take 5", 1)
 
     assert "checkout failed" in result
 
@@ -41,7 +41,7 @@ def test_query_logs_handles_non_success_status(monkeypatch):
 
     with patch.object(az, "LogsQueryClient") as MockClient:
         MockClient.return_value.query_workspace.return_value = fake_response
-        result = az.query_logs("Traces | take 5")
+        result = az.query_logs("Traces | take 5", 1)
 
     assert result.startswith("ERROR")
 
@@ -49,13 +49,13 @@ def test_query_logs_handles_non_success_status(monkeypatch):
 def test_query_logs_handles_sdk_exception(monkeypatch):
     _configure(monkeypatch)
     with patch.object(az, "LogsQueryClient", side_effect=RuntimeError("boom")):
-        result = az.query_logs("Traces | take 5")
+        result = az.query_logs("Traces | take 5", 1)
     assert result.startswith("ERROR")
 
 
 def test_query_metrics_requires_config(monkeypatch):
     monkeypatch.setattr(az, "AZURE_TENANT_ID", "")
-    assert az.query_metrics("/subscriptions/x", "Microsoft.Compute/virtualMachines", "Percentage CPU").startswith("ERROR")
+    assert az.query_metrics("/subscriptions/x", "Microsoft.Compute/virtualMachines", "Percentage CPU", 1).startswith("ERROR")
 
 
 def test_query_metrics_requires_endpoint(monkeypatch):
@@ -63,7 +63,7 @@ def test_query_metrics_requires_endpoint(monkeypatch):
     monkeypatch.setattr(az, "AZURE_CLIENT_ID", "cid")
     monkeypatch.setattr(az, "AZURE_CLIENT_SECRET", "secret")
     monkeypatch.setattr(az, "AZURE_METRICS_ENDPOINT", "")
-    assert az.query_metrics("/subscriptions/x", "Microsoft.Compute/virtualMachines", "Percentage CPU").startswith("ERROR")
+    assert az.query_metrics("/subscriptions/x", "Microsoft.Compute/virtualMachines", "Percentage CPU", 1).startswith("ERROR")
 
 
 def test_query_metrics_formats_points(monkeypatch):
@@ -79,8 +79,44 @@ def test_query_metrics_formats_points(monkeypatch):
     with patch.object(az, "MetricsClient") as MockClient:
         MockClient.return_value.query_resources.return_value = [fake_result]
         result = az.query_metrics(
-            "/subscriptions/x/resourceGroups/y", "Microsoft.Compute/virtualMachines", "Percentage CPU"
+            "/subscriptions/x/resourceGroups/y", "Microsoft.Compute/virtualMachines", "Percentage CPU", 1
         )
 
     assert "Percentage CPU" in result
     assert "42.0" in result
+
+
+def test_credential_forwards_scoping_to_config(monkeypatch):
+    captured = {}
+
+    def fake_config(user_id, deployment_id=None, client_id=None):
+        captured.update(deployment_id=deployment_id, client_id=client_id)
+        return {"tenant_id": "tid", "client_id": "cid", "client_secret": "secret"}
+
+    monkeypatch.setattr(az, "_config", fake_config)
+    az._credential(1, deployment_id=42, client_id=7)
+    assert captured == {"deployment_id": 42, "client_id": 7}
+
+
+def test_query_logs_passes_deployment_id_to_config(monkeypatch):
+    captured = {}
+
+    def fake_config(user_id, deployment_id=None, client_id=None):
+        captured["deployment_id"] = deployment_id
+        return {"tenant_id": "", "client_id": "", "client_secret": "", "log_analytics_workspace_id": ""}
+
+    monkeypatch.setattr(az, "_config", fake_config)
+    az.query_logs("Traces | take 5", 1, deployment_id=42)
+    assert captured["deployment_id"] == 42
+
+
+def test_query_metrics_passes_deployment_id_to_config(monkeypatch):
+    captured = {}
+
+    def fake_config(user_id, deployment_id=None, client_id=None):
+        captured["deployment_id"] = deployment_id
+        return {"tenant_id": "", "client_id": "", "client_secret": "", "metrics_endpoint": ""}
+
+    monkeypatch.setattr(az, "_config", fake_config)
+    az.query_metrics("/subscriptions/x", "Microsoft.Compute/virtualMachines", "Percentage CPU", 1, deployment_id=42)
+    assert captured["deployment_id"] == 42

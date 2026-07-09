@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
+import Icon from "../components/Icon";
 import PostmortemView from "../components/PostmortemView";
 
 export default function InvestigationDetail() {
@@ -8,6 +9,7 @@ export default function InvestigationDetail() {
   const [item, setItem] = useState(null);
   const [error, setError] = useState(null);
   const [rerunning, setRerunning] = useState(false);
+  const [deployments, setDeployments] = useState([]);
 
   async function load() {
     try {
@@ -22,6 +24,15 @@ export default function InvestigationDetail() {
   useEffect(() => {
     load();
   }, [id]);
+
+  useEffect(() => {
+    fetch("/api/clients/deployments?include_archived=true")
+      .then((r) => r.json())
+      .then(setDeployments)
+      .catch(() => {});
+  }, []);
+
+  const deployment = item?.deployment_id != null ? deployments.find((d) => d.id === item.deployment_id) : null;
 
   async function toggleReviewed() {
     const next = !item.reviewed;
@@ -39,7 +50,7 @@ export default function InvestigationDetail() {
       await fetch("/api/investigate", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ alert: item.alert_text }),
+        body: JSON.stringify({ alert: item.alert_text, deployment_id: item.deployment_id }),
       });
       navigate("/investigations");
     } finally {
@@ -48,7 +59,16 @@ export default function InvestigationDetail() {
   }
 
   if (error) return <p className="placeholder">Couldn't load investigation: {error}</p>;
-  if (!item) return <p className="placeholder">Loading…</p>;
+  if (!item) {
+    return (
+      <section>
+        <div className="skeleton" style={{ width: 160, height: 16, marginBottom: 18 }} />
+        <div className="skeleton" style={{ width: "70%", height: 12, marginBottom: 10 }} />
+        <div className="skeleton" style={{ width: "40%", height: 12, marginBottom: 22 }} />
+        <div className="skeleton" style={{ width: "100%", height: 80 }} />
+      </section>
+    );
+  }
 
   const pm = item.result?.postmortem;
   const sourceLink =
@@ -61,9 +81,15 @@ export default function InvestigationDetail() {
   return (
     <section>
       <div className="row" style={{ justifyContent: "space-between" }}>
-        <Link to="/investigations">← Back to investigations</Link>
+        <Link to="/investigations" style={{ display: "inline-flex", alignItems: "center", gap: 6, fontSize: 13, fontWeight: 500 }}>
+          <Icon name="arrowLeft" size={14} />
+          Back to investigations
+        </Link>
         <div className="row">
-          <button onClick={toggleReviewed}>{item.reviewed ? "Mark unreviewed" : "Mark reviewed"}</button>
+          <button onClick={toggleReviewed}>
+            <Icon name="check" size={14} />
+            {item.reviewed ? "Mark unreviewed" : "Mark reviewed"}
+          </button>
           <button className="primary" disabled={rerunning} onClick={rerun}>
             {rerunning ? "Starting…" : "Re-run"}
           </button>
@@ -73,7 +99,9 @@ export default function InvestigationDetail() {
       <div style={{ marginTop: 16 }}>
         <p className="pm-meta">
           <span className="feed-source">{item.source}</span>
-          {sourceLink && ` · ${sourceLink.label}`} · {item.status} · {new Date(item.created_at).toLocaleString()}
+          {sourceLink && ` · ${sourceLink.label}`}
+          {deployment && ` · ${deployment.client_name} / ${deployment.label}`}
+          {" · "}{item.status} · {new Date(item.created_at).toLocaleString()}
         </p>
 
         {pm ? <PostmortemView pm={pm} /> : <pre>{item.result?.result || "No structured postmortem for this run."}</pre>}

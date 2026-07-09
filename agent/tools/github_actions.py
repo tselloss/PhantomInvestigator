@@ -5,29 +5,38 @@ import os
 
 import httpx
 
+import integration_credentials
 from ._http import request_with_retry
 
 GITHUB_TOKEN = os.environ.get("GITHUB_TOKEN", "")
 GITHUB_API = "https://api.github.com"
 
 
-def _headers():
+def _config(user_id: int, deployment_id: int | None = None, client_id: int | None = None) -> dict:
+    override = integration_credentials.resolve_credentials(
+        "github", user_id, deployment_id=deployment_id, client_id=client_id
+    ) or {}
+    return {"token": override.get("token") or GITHUB_TOKEN}
+
+
+def _headers(token: str):
     return {
-        "Authorization": f"Bearer {GITHUB_TOKEN}",
+        "Authorization": f"Bearer {token}",
         "Accept": "application/vnd.github+json",
         "X-GitHub-Api-Version": "2022-11-28",
     }
 
 
-def get_recent_runs(repo: str) -> str:
+def get_recent_runs(repo: str, user_id: int, deployment_id: int | None = None) -> str:
     """repo: 'owner/name'. Returns the most recent workflow runs with status/conclusion."""
-    if not GITHUB_TOKEN:
+    cfg = _config(user_id, deployment_id=deployment_id)
+    if not cfg["token"]:
         return "ERROR: GITHUB_TOKEN not configured"
     try:
         resp = request_with_retry(
             "GET",
             f"{GITHUB_API}/repos/{repo}/actions/runs",
-            headers=_headers(),
+            headers=_headers(cfg["token"]),
             params={"per_page": 10},
             timeout=10.0,
         )
@@ -43,15 +52,16 @@ def get_recent_runs(repo: str) -> str:
     return "\n".join(lines)[:3000] if lines else "No recent workflow runs found."
 
 
-def get_run_logs(repo: str, run_id: int) -> str:
+def get_run_logs(repo: str, run_id: int, user_id: int, deployment_id: int | None = None) -> str:
     """Fetch logs for the failed jobs in a workflow run."""
-    if not GITHUB_TOKEN:
+    cfg = _config(user_id, deployment_id=deployment_id)
+    if not cfg["token"]:
         return "ERROR: GITHUB_TOKEN not configured"
     try:
         jobs_resp = request_with_retry(
             "GET",
             f"{GITHUB_API}/repos/{repo}/actions/runs/{run_id}/jobs",
-            headers=_headers(),
+            headers=_headers(cfg["token"]),
             timeout=10.0,
         )
     except httpx.HTTPError as e:
@@ -67,7 +77,7 @@ def get_run_logs(repo: str, run_id: int) -> str:
             log_resp = request_with_retry(
                 "GET",
                 f"{GITHUB_API}/repos/{repo}/actions/jobs/{job['id']}/logs",
-                headers=_headers(),
+                headers=_headers(cfg["token"]),
                 timeout=10.0,
                 follow_redirects=True,
             )
@@ -77,15 +87,16 @@ def get_run_logs(repo: str, run_id: int) -> str:
     return "\n\n".join(chunks)[:4000]
 
 
-def get_deploy_diff(repo: str, base: str, head: str) -> str:
+def get_deploy_diff(repo: str, base: str, head: str, user_id: int, deployment_id: int | None = None) -> str:
     """Real GitHub compare API: GET /repos/{repo}/compare/{base}...{head}."""
-    if not GITHUB_TOKEN:
+    cfg = _config(user_id, deployment_id=deployment_id)
+    if not cfg["token"]:
         return "ERROR: GITHUB_TOKEN not configured"
     try:
         resp = request_with_retry(
             "GET",
             f"{GITHUB_API}/repos/{repo}/compare/{base}...{head}",
-            headers=_headers(),
+            headers=_headers(cfg["token"]),
             timeout=10.0,
         )
     except httpx.HTTPError as e:

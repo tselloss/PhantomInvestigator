@@ -15,7 +15,7 @@ DATABASE_URL = os.environ.get("DATABASE_URL", "postgresql://postgres:postgres@lo
 RRF_K = 60  # standard RRF constant — dampens the impact of any single rank-1 hit
 TOP_K = 5
 
-def search(query: str) -> str:
+def search(query: str, user_id: int) -> str:
     try:
         [query_embedding] = embed([query], input_type="query")
     except Exception as e:
@@ -26,17 +26,17 @@ def search(query: str) -> str:
             register_vector(conn)
 
             vector_rows = conn.execute(
-                "SELECT id, title, chunk FROM runbook_chunks "
+                "SELECT id, title, chunk FROM runbook_chunks WHERE owner_user_id = %s "
                 "ORDER BY embedding <=> %s::vector LIMIT 10",
-                (query_embedding,),
+                (user_id, query_embedding),
             ).fetchall()
 
             text_rows = conn.execute(
                 "SELECT id, title, chunk FROM runbook_chunks "
-                "WHERE to_tsvector('english', chunk) @@ plainto_tsquery('english', %s) "
+                "WHERE owner_user_id = %s AND to_tsvector('english', chunk) @@ plainto_tsquery('english', %s) "
                 "ORDER BY ts_rank(to_tsvector('english', chunk), plainto_tsquery('english', %s)) DESC "
                 "LIMIT 10",
-                (query, query),
+                (user_id, query, query),
             ).fetchall()
     except Exception as e:
         return f"ERROR querying runbooks: {e}"

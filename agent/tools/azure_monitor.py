@@ -13,6 +13,8 @@ from azure.identity import ClientSecretCredential
 from azure.monitor.query import LogsQueryClient, LogsQueryStatus
 from azure.monitor.querymetrics import MetricsClient
 
+import integration_credentials
+
 AZURE_TENANT_ID = os.environ.get("AZURE_TENANT_ID", "")
 AZURE_CLIENT_ID = os.environ.get("AZURE_CLIENT_ID", "")
 AZURE_CLIENT_SECRET = os.environ.get("AZURE_CLIENT_SECRET", "")
@@ -22,18 +24,36 @@ AZURE_LOG_ANALYTICS_WORKSPACE_ID = os.environ.get("AZURE_LOG_ANALYTICS_WORKSPACE
 AZURE_METRICS_ENDPOINT = os.environ.get("AZURE_METRICS_ENDPOINT", "")
 
 
-def _credential():
-    return ClientSecretCredential(AZURE_TENANT_ID, AZURE_CLIENT_ID, AZURE_CLIENT_SECRET)
+def _config(user_id: int, deployment_id: int | None = None, client_id: int | None = None) -> dict:
+    # NOTE: `client_id` here is OUR scoping id (this project's client row);
+    # cfg["client_id"]/AZURE_CLIENT_ID below is Azure's own AD app client id
+    # -- same name, unrelated concepts.
+    override = integration_credentials.resolve_credentials(
+        "azure", user_id, deployment_id=deployment_id, client_id=client_id
+    ) or {}
+    return {
+        "tenant_id": override.get("tenant_id") or AZURE_TENANT_ID,
+        "client_id": override.get("client_id") or AZURE_CLIENT_ID,
+        "client_secret": override.get("client_secret") or AZURE_CLIENT_SECRET,
+        "log_analytics_workspace_id": override.get("log_analytics_workspace_id") or AZURE_LOG_ANALYTICS_WORKSPACE_ID,
+        "metrics_endpoint": override.get("metrics_endpoint") or AZURE_METRICS_ENDPOINT,
+    }
 
 
-def query_logs(kql: str) -> str:
+def _credential(user_id: int, deployment_id: int | None = None, client_id: int | None = None):
+    cfg = _config(user_id, deployment_id=deployment_id, client_id=client_id)
+    return ClientSecretCredential(cfg["tenant_id"], cfg["client_id"], cfg["client_secret"])
+
+
+def query_logs(kql: str, user_id: int, deployment_id: int | None = None) -> str:
     """Run a KQL query against the configured Log Analytics workspace."""
-    if not (AZURE_TENANT_ID and AZURE_CLIENT_ID and AZURE_CLIENT_SECRET and AZURE_LOG_ANALYTICS_WORKSPACE_ID):
+    cfg = _config(user_id, deployment_id=deployment_id)
+    if not (cfg["tenant_id"] and cfg["client_id"] and cfg["client_secret"] and cfg["log_analytics_workspace_id"]):
         return "ERROR: Azure credentials/workspace not configured"
     try:
-        client = LogsQueryClient(_credential(), retry_total=1, retry_backoff_factor=1.0)
+        client = LogsQueryClient(_credential(user_id, deployment_id=deployment_id), retry_total=1, retry_backoff_factor=1.0)
         response = client.query_workspace(
-            workspace_id=AZURE_LOG_ANALYTICS_WORKSPACE_ID,
+            workspace_id=cfg["log_analytics_workspace_id"],
             query=kql,
             timespan=timedelta(hours=1),
         )
@@ -51,13 +71,19 @@ def query_logs(kql: str) -> str:
     return "\n".join(lines)[:3000] if lines else "No matching rows found."
 
 
-def query_metrics(resource_id: str, metric_namespace: str, metric_names: str) -> str:
+def query_metrics(
+    resource_id: str, metric_namespace: str, metric_names: str, user_id: int, deployment_id: int | None = None
+) -> str:
     """metric_namespace: e.g. 'Microsoft.Compute/virtualMachines'.
     metric_names: comma-separated Azure Monitor metric names, e.g. 'Percentage CPU,Network In'."""
-    if not (AZURE_TENANT_ID and AZURE_CLIENT_ID and AZURE_CLIENT_SECRET and AZURE_METRICS_ENDPOINT):
+    cfg = _config(user_id, deployment_id=deployment_id)
+    if not (cfg["tenant_id"] and cfg["client_id"] and cfg["client_secret"] and cfg["metrics_endpoint"]):
         return "ERROR: Azure credentials/metrics endpoint not configured"
     try:
-        client = MetricsClient(AZURE_METRICS_ENDPOINT, _credential(), retry_total=1, retry_backoff_factor=1.0)
+        client = MetricsClient(
+            cfg["metrics_endpoint"], _credential(user_id, deployment_id=deployment_id),
+            retry_total=1, retry_backoff_factor=1.0,
+        )
         results = client.query_resources(
             resource_ids=[resource_id],
             metric_namespace=metric_namespace,

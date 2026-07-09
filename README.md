@@ -1,5 +1,7 @@
 # 👻 Phantom Investigator
 
+[![Buy Me A Coffee](https://cdn.buymeacoffee.com/buttons/v2/default-yellow.png)](https://buymeacoffee.com/tsellosskr)
+
 > An AI agent that debugs production incidents like an SRE: reads the Jira ticket, checks recent CI/deploy history, queries metrics and logs, cross-references past postmortems (RAG), and writes a root-cause report — every step traced.
 
 Built on the same agent architecture as [AIInvestigator](https://github.com/tselloss/AIInvestigator) (its demo-app/Prometheus/Loki proving ground for the agent loop, kept here for regression testing), extended to investigate **real** production incidents sourced from Jira and GitHub Actions — triggered automatically via webhooks, with results posted back to the ticket.
@@ -52,7 +54,7 @@ The demo-app + Prometheus/Loki/Grafana stack from AIInvestigator stays in place 
 | Evals | Custom harness + LLM-as-judge | Measured accuracy + quality on injected faults, not vibes |
 | Tests | pytest + respx, mocked | Tool-module request/response handling + webhook auth logic |
 | UI | React (Vite) + react-router | Multi-page operator console — see Operator console below |
-| Auth | Signed session cookie (PyJWT), single shared operator credential | Proportionate to an internal tool; no user table |
+| Auth | Signed session cookie (PyJWT), real per-user accounts (argon2-hashed passwords) | Self-service register/login; every user's data is fully isolated |
 | Packaging | Docker Compose | One command up, zero manual clicking |
 
 ## Operator console
@@ -61,8 +63,10 @@ The UI (`ui/`) is a multi-page app behind a login:
 
 | Route | Page |
 |---|---|
+| `/` | Public landing page (free, self-hosted, bring your own AI key) |
 | `/login` | Sign in |
-| `/` | Dashboard — integration health, 7-day stats, recent investigations |
+| `/register` | Create an account |
+| `/dashboard` | Integration health, 7-day stats, recent investigations |
 | `/investigate` | Manual trigger + live SSE investigation view |
 | `/investigations` | Full history, filterable by source/status, paginated |
 | `/investigations/:id` | Full postmortem, source links, re-run, mark reviewed |
@@ -76,15 +80,19 @@ All JSON API routes live under `/api/*` and are gated by session auth (checked b
 
 ```bash
 cp .env.example .env
-# Fill in: ANTHROPIC_API_KEY, EMBEDDING_API_KEY (Voyage AI), Langfuse secrets,
-# ADMIN_USERNAME/ADMIN_PASSWORD/SESSION_SECRET (operator login — generate
-# SESSION_SECRET with `openssl rand -hex 32`), and whichever of
-# JIRA_*/GITHUB_*/AZURE_*/AWS_* you actually have accounts for.
+# Fill in: EMBEDDING_API_KEY (Voyage AI), Langfuse secrets, SESSION_SECRET
+# (generate with `openssl rand -hex 32`), and whichever of
+# JIRA_*/GITHUB_*/AZURE_*/AWS_* you actually have accounts for. Your own AI
+# provider key (Claude/OpenAI/compatible) is added from the running app's
+# Settings page after you register, not from .env.
 
 make up          # docker compose up -d --build
-make ingest       # embed runbooks/*.md into pgvector
-make investigate  # or open the UI, log in, and trigger manually
+make investigate  # or open the UI, register an account, and trigger manually
 ```
+
+Runbooks are seeded per-account automatically on registration (see
+`make ingest` in the Makefile if you need to re-embed after adding new
+`runbooks/*.md` files for an existing account).
 
 | Service | URL |
 |---|---|
@@ -139,7 +147,7 @@ needed instead of a tunnel — see Build status below.
 | L | Dashboard (integration health, 7-day stats, recent investigations) | ✅ |
 | M | Runbooks page (list + re-ingest) | ✅ |
 | N | Integrations/Settings page (config status + live test-connection) | ✅ |
-| J | Login-gated access (session cookie, single operator credential) | ✅ |
+| J | Login-gated access (session cookie, real per-user accounts, register/login) | ✅ |
 
 Needs a stable public endpoint (small VPS) instead of a tunnel for anything beyond local testing — not done in this pass.
 

@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import Icon from "../components/Icon";
 
 export default function Runbooks() {
   const [runbooks, setRunbooks] = useState([]);
@@ -40,6 +41,7 @@ export default function Runbooks() {
       <div className="row" style={{ justifyContent: "space-between" }}>
         <h2 style={{ margin: 0 }}>Runbooks</h2>
         <button className="primary" disabled={ingesting} onClick={ingest}>
+          <Icon name="book" size={14} />
           {ingesting ? "Ingesting…" : "Re-ingest"}
         </button>
       </div>
@@ -51,12 +53,17 @@ export default function Runbooks() {
       )}
 
       {error && <p className="placeholder">Couldn't load runbooks: {error}</p>}
-      {!error && runbooks.length === 0 && <p className="placeholder">No runbooks ingested yet — click Re-ingest.</p>}
+      {!error && runbooks.length === 0 && (
+        <div className="empty-state">
+          <Icon name="book" size={30} />
+          <p>No runbooks ingested yet — click Re-ingest.</p>
+        </div>
+      )}
 
       {runbooks.map((rb) => (
         <div className="feed-row" key={rb.title}>
           <div>{rb.title}</div>
-          <div className="feed-status">{rb.chunk_count} chunks</div>
+          <div className="feed-meta">{rb.chunk_count} chunks</div>
         </div>
       ))}
     </section>

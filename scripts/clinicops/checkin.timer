@@ -1,0 +1,9 @@
+[Unit]
+Description=Periodically report ClinicOps version/build to PhantomInvestigator
+
+[Timer]
+OnBootSec=1min
+OnUnitActiveSec=5min
+
+[Install]
+WantedBy=timers.target

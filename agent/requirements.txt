@@ -1,6 +1,7 @@
 fastapi
 uvicorn[standard]
 anthropic
+openai
 httpx
 pydantic
 structlog
@@ -12,3 +13,6 @@ azure-monitor-query
 azure-monitor-querymetrics
 boto3
 pyjwt
+python-multipart          # required by FastAPI for multipart/form-data (diagnostic bundle uploads)
+cryptography              # encrypts integration credentials stored via the Integrations page (integration_credentials.py)
+argon2-cffi               # password hashing for real user accounts (users.py)

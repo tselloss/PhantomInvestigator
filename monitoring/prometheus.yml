@@ -4,3 +4,14 @@ scrape_configs:
   - job_name: demo-app
     static_configs:
       - targets: ["demo-app:8000"]
+
+  # ClinicOps runs locally (clinicops_app/clinicops_db/clinicops_suggest, a
+  # separate docker-compose project on this same host) rather than a real
+  # remote VM for this demo pass. cAdvisor (added in docker-compose.yml)
+  # reports real per-container CPU/memory/network metrics for every
+  # container on the host via the docker socket -- no changes to ClinicOps
+  # itself needed. Filter queries with a label match, e.g.
+  # container_label_com_docker_compose_project="clinicops".
+  - job_name: cadvisor
+    static_configs:
+      - targets: ["cadvisor:8080"]

@@ -1,0 +1,10 @@
+[Unit]
+Description=Report ClinicOps version/build to PhantomInvestigator
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+EnvironmentFile=/etc/clinicops-checkin.env
+WorkingDirectory=/opt/clinicops
+ExecStart=/opt/clinicops/scripts/checkin.sh

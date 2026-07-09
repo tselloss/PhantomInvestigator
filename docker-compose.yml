@@ -35,6 +35,20 @@ services:
     ports: ["9090:9090"]
     volumes: ["./monitoring/prometheus.yml:/etc/prometheus/prometheus.yml"]
 
+  # Real per-container CPU/memory/network metrics for every container on
+  # this Docker host, including ClinicOps's clinicops_app/clinicops_db/
+  # clinicops_suggest (a separate compose project) -- scraped by prometheus's
+  # "cadvisor" job. No changes to ClinicOps itself needed.
+  cadvisor:
+    image: gcr.io/cadvisor/cadvisor:latest
+    privileged: true
+    ports: ["8087:8080"]
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - /run/containerd/containerd.sock:/run/containerd/containerd.sock:ro
+      - /sys:/sys:ro
+      - /var/lib/docker/:/var/lib/docker:ro
+
   loki:
     image: grafana/loki:latest
     ports: ["3100:3100"]

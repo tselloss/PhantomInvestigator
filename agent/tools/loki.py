@@ -5,15 +5,26 @@ import time
 
 import httpx
 
+import integration_credentials
+
 LOKI_URL = os.environ.get("LOKI_URL", "http://localhost:3100")
 
-def search(logql: str, minutes: int = 15) -> str:
+
+def _config(user_id: int, deployment_id: int | None = None, client_id: int | None = None) -> dict:
+    override = integration_credentials.resolve_credentials(
+        "loki", user_id, deployment_id=deployment_id, client_id=client_id
+    ) or {}
+    return {"url": override.get("url") or LOKI_URL}
+
+
+def search(logql: str, user_id: int, minutes: int = 5, deployment_id: int | None = None) -> str:
+    url = _config(user_id, deployment_id=deployment_id)["url"]
     now_ns = time.time_ns()
     start_ns = now_ns - minutes * 60 * 1_000_000_000
 
     try:
         resp = httpx.get(
-            f"{LOKI_URL}/loki/api/v1/query_range",
+            f"{url}/loki/api/v1/query_range",
             params={"query": logql, "start": start_ns, "end": now_ns, "limit": 50},
             timeout=10.0,
         )

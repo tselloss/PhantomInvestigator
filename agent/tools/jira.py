@@ -4,6 +4,7 @@ import os
 
 import httpx
 
+import integration_credentials
 from ._http import request_with_retry
 
 JIRA_BASE_URL = os.environ.get("JIRA_BASE_URL", "")
@@ -11,8 +12,21 @@ JIRA_EMAIL = os.environ.get("JIRA_EMAIL", "")
 JIRA_API_TOKEN = os.environ.get("JIRA_API_TOKEN", "")
 
 
-def _auth():
-    return (JIRA_EMAIL, JIRA_API_TOKEN)
+def _config(user_id: int, deployment_id: int | None = None, client_id: int | None = None) -> dict:
+    """.env defaults above, overridden field-by-field by whatever's stored
+    via the Integrations page (global) or, if deployment_id/client_id
+    resolves to one, a client's own override -- see
+    integration_credentials.resolve_credentials. Read fresh on every call
+    (not cached at import time) so edits there take effect without a
+    restart."""
+    override = integration_credentials.resolve_credentials(
+        "jira", user_id, deployment_id=deployment_id, client_id=client_id
+    ) or {}
+    return {
+        "base_url": override.get("base_url") or JIRA_BASE_URL,
+        "email": override.get("email") or JIRA_EMAIL,
+        "api_token": override.get("api_token") or JIRA_API_TOKEN,
+    }
 
 
 def _extract_text(adf) -> str:
@@ -38,14 +52,15 @@ def _extract_text(adf) -> str:
     return " ".join(texts)
 
 
-def get_ticket(key: str) -> str:
-    if not JIRA_BASE_URL:
+def get_ticket(key: str, user_id: int, deployment_id: int | None = None) -> str:
+    cfg = _config(user_id, deployment_id=deployment_id)
+    if not cfg["base_url"]:
         return "ERROR: JIRA_BASE_URL not configured"
     try:
         resp = request_with_retry(
             "GET",
-            f"{JIRA_BASE_URL}/rest/api/3/issue/{key}",
-            auth=_auth(),
+            f"{cfg['base_url']}/rest/api/3/issue/{key}",
+            auth=(cfg["email"], cfg["api_token"]),
             params={"fields": "summary,description,comment,status,created"},
             timeout=10.0,
         )
@@ -70,8 +85,9 @@ def get_ticket(key: str) -> str:
     return "\n".join(lines)[:3000]
 
 
-def post_comment(key: str, body: str) -> str:
-    if not JIRA_BASE_URL:
+def post_comment(key: str, body: str, user_id: int, deployment_id: int | None = None) -> str:
+    cfg = _config(user_id, deployment_id=deployment_id)
+    if not cfg["base_url"]:
         return "ERROR: JIRA_BASE_URL not configured"
     payload = {
         "body": {
@@ -83,8 +99,8 @@ def post_comment(key: str, body: str) -> str:
     try:
         request_with_retry(
             "POST",
-            f"{JIRA_BASE_URL}/rest/api/3/issue/{key}/comment",
-            auth=_auth(),
+            f"{cfg['base_url']}/rest/api/3/issue/{key}/comment",
+            auth=(cfg["email"], cfg["api_token"]),
             json=payload,
             timeout=10.0,
         )

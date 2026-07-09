@@ -5,15 +5,23 @@ import json
 import os
 
 import httpx
-from fastapi import FastAPI, HTTPException
+from fastapi import Depends, FastAPI, File, Form, HTTPException, UploadFile
 from fastapi.responses import HTMLResponse, JSONResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 from starlette.middleware.base import BaseHTTPMiddleware
 
+import clients
+import diagnostics
 import investigations
-from routes.auth import SESSION_COOKIE, verify_session_cookie
+import screenshots
+import vision
+from routes.auth import SESSION_COOKIE, get_current_user, verify_session_cookie
 from routes.auth import router as auth_router
+from routes.checkin import router as checkin_router
+from routes.client_integrations import router as client_integrations_router
+from routes.clients import router as clients_router
+from routes.diagnostics import router as diagnostics_router
 from routes.evals import router as evals_router
 from routes.investigations import router as investigations_router
 from routes.runbooks import router as runbooks_router
@@ -32,9 +40,10 @@ class AuthMiddleware(BaseHTTPMiddleware):
 
     async def dispatch(self, request, call_next):
         if request.url.path.startswith("/api/"):
-            username = verify_session_cookie(request.cookies.get(SESSION_COOKIE))
-            if not username:
+            user = verify_session_cookie(request.cookies.get(SESSION_COOKIE))
+            if not user:
                 return JSONResponse({"detail": "not authenticated"}, status_code=401)
+            request.state.user = user
         return await call_next(request)
 
 
@@ -42,7 +51,11 @@ app = FastAPI(title="phantom-investigator")
 app.add_middleware(AuthMiddleware)
 
 app.include_router(webhooks_router)
+app.include_router(checkin_router)
 app.include_router(auth_router)
+app.include_router(clients_router, prefix="/api")
+app.include_router(client_integrations_router, prefix="/api")
+app.include_router(diagnostics_router, prefix="/api")
 app.include_router(investigations_router, prefix="/api")
 app.include_router(runbooks_router, prefix="/api")
 app.include_router(settings_router, prefix="/api")
@@ -51,36 +64,118 @@ app.include_router(evals_router, prefix="/api")
 
 class InvestigateRequest(BaseModel):
     alert: str
+    deployment_id: int | None = None
+    screenshot_id: int | None = None
+
+
+MAX_SCREENSHOT_BYTES = 5 * 1024 * 1024
+ALLOWED_SCREENSHOT_TYPES = {"image/png", "image/jpeg", "image/webp", "image/gif"}
+
+
+@app.post("/api/investigate/screenshot")
+async def investigate_screenshot(
+    file: UploadFile = File(...), deployment_id: int | None = Form(None), user: dict = Depends(get_current_user)
+):
+    """Uploaded separately, before an investigation starts: the UI's actual
+    submit path (GET /api/investigate/stream, below) is an EventSource and
+    can't carry a multipart body. The caller uploads here first, gets back a
+    vision_description to fold into the alert text client-side, then starts
+    the investigation as normal (optionally passing the returned id back so
+    it gets linked to the investigation once one exists)."""
+    if file.content_type not in ALLOWED_SCREENSHOT_TYPES:
+        raise HTTPException(415, f"unsupported content type: {file.content_type}")
+
+    image_bytes = await file.read()
+    if len(image_bytes) > MAX_SCREENSHOT_BYTES:
+        raise HTTPException(413, f"screenshot exceeds {MAX_SCREENSHOT_BYTES} byte limit")
+
+    user_id = user["user_id"]
+    vision_description = None
+    vision_status = "failed"
+    try:
+        vision_description = vision.describe_screenshot(image_bytes, file.content_type, user_id)
+        vision_status = "ok"
+    except Exception:
+        pass  # keep the screenshot on record even if the vision call failed; UI falls back to guided text fields
+
+    screenshot = screenshots.store_screenshot(
+        file.filename or "screenshot",
+        file.content_type,
+        image_bytes,
+        user_id,
+        deployment_id=deployment_id,
+        vision_description=vision_description,
+        vision_status=vision_status,
+    )
+
+    if deployment_id is not None and vision_description:
+        diagnostics.store_bundle(
+            deployment_id, user_id, file.filename or "screenshot", screenshot_excerpt=vision_description
+        )
+
+    return {
+        "id": screenshot["id"],
+        "filename": screenshot["filename"],
+        "vision_description": vision_description,
+        "vision_status": vision_status,
+    }
 
 
 @app.post("/api/investigate")
-async def investigate(req: InvestigateRequest):
+async def investigate(req: InvestigateRequest, user: dict = Depends(get_current_user)):
     from loop import run_agent
 
-    investigation_id = investigations.start("manual", None, req.alert)
+    user_id = user["user_id"]
+    alert_text = clients.deployment_note(req.deployment_id, user_id) + req.alert
+
+    duplicate = investigations.find_recent_duplicate("manual", None, req.deployment_id, alert_text, user_id)
+    if duplicate is not None:
+        return {**(duplicate["result"] or {}), "investigation_id": duplicate["id"], "deduped": True}
+
+    investigation_id = investigations.start("manual", None, alert_text, user_id, deployment_id=req.deployment_id)
+    if req.screenshot_id is not None:
+        screenshots.link_to_investigation(req.screenshot_id, investigation_id)
+    loop_alert_text = clients.build_loop_alert_text(alert_text, investigation_id, req.deployment_id, user_id)
     try:
-        result = run_agent(req.alert)
+        result = run_agent(loop_alert_text, user_id, deployment_id=req.deployment_id)
     except Exception as e:
         investigations.finish(investigation_id, "error", {"error": f"{type(e).__name__}: {e}"})
         raise
     investigations.finish(investigation_id, "done" if result.get("postmortem") else "partial", result)
-    return result
+    return {**result, "investigation_id": investigation_id, "deduped": False}
 
 
 @app.get("/api/investigate/stream")
-async def investigate_stream(alert: str = "Manual investigation triggered from UI."):
+async def investigate_stream(
+    alert: str = "Manual investigation triggered from UI.",
+    deployment_id: int | None = None,
+    screenshot_id: int | None = None,
+    user: dict = Depends(get_current_user),
+):
     """Same investigation as POST /api/investigate, but streamed as
     Server-Sent Events so a UI can show tool calls as they happen instead of
     blocking for 20-40s. GET + query param (not POST + body) because
     EventSource, the browser API for consuming SSE, only supports GET."""
+    user_id = user["user_id"]
 
     def event_gen():
         from loop import run_agent_stream
 
-        investigation_id = investigations.start("manual", None, alert)
+        alert_text = clients.deployment_note(deployment_id, user_id) + alert
+
+        duplicate = investigations.find_recent_duplicate("manual", None, deployment_id, alert_text, user_id)
+        if duplicate is not None:
+            data = {**(duplicate["result"] or {}), "investigation_id": duplicate["id"], "deduped": True}
+            yield f"data: {json.dumps({'type': 'final', 'data': data})}\n\n"
+            return
+
+        investigation_id = investigations.start("manual", None, alert_text, user_id, deployment_id=deployment_id)
+        if screenshot_id is not None:
+            screenshots.link_to_investigation(screenshot_id, investigation_id)
+        loop_alert_text = clients.build_loop_alert_text(alert_text, investigation_id, deployment_id, user_id)
         result = None
         try:
-            for event in run_agent_stream(alert):
+            for event in run_agent_stream(loop_alert_text, user_id, deployment_id=deployment_id):
                 if event["type"] == "final":
                     result = event["data"]
                 yield f"data: {json.dumps(event)}\n\n"

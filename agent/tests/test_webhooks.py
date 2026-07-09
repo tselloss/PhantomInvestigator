@@ -11,6 +11,10 @@ from routes import webhooks
 client = TestClient(main.app)
 
 
+def _no_deployment(*_args, **_kwargs):
+    return None
+
+
 def test_jira_webhook_rejects_bad_secret(monkeypatch):
     monkeypatch.setattr(webhooks, "JIRA_WEBHOOK_SECRET", "s3cr3t")
     resp = client.post("/webhooks/jira?secret=wrong", json={"issue": {"key": "OPS-1", "fields": {"summary": "x"}}})
@@ -40,11 +44,34 @@ def test_jira_webhook_accepts_valid_secret_and_schedules_investigation(monkeypat
     assert resp.status_code == 200
     assert resp.json() == {"accepted": True, "key": "OPS-1"}
     mock_investigate.assert_called_once()
-    source, source_ref, alert_text, jira_key = mock_investigate.call_args.args
+    source, source_ref, alert_text, jira_key, deployment_id, owner_user_id = mock_investigate.call_args.args
     assert source == "jira"
     assert source_ref == "OPS-1"
     assert "checkout down" in alert_text
     assert jira_key == "OPS-1"
+    assert deployment_id is None  # payload has no project key, so nothing to resolve
+    assert owner_user_id is None
+
+
+def test_jira_webhook_resolves_known_deployment(monkeypatch):
+    monkeypatch.setattr(webhooks, "JIRA_WEBHOOK_SECRET", "s3cr3t")
+    monkeypatch.setattr(
+        webhooks.clients, "find_deployment_by_jira_project",
+        lambda key: {"id": 42, "client_id": 7, "owner_user_id": 1, "label": "prod"} if key == "OPS" else None,
+    )
+    monkeypatch.setattr(webhooks.clients, "get_client", lambda client_id, owner_user_id: {"id": 7, "name": "Acme Corp"})
+
+    with patch.object(webhooks, "_investigate_and_report") as mock_investigate:
+        resp = client.post(
+            "/webhooks/jira?secret=s3cr3t",
+            json={"issue": {"key": "OPS-1", "fields": {"summary": "checkout down", "project": {"key": "OPS"}}}},
+        )
+
+    assert resp.status_code == 200
+    _, _, alert_text, _, deployment_id, owner_user_id = mock_investigate.call_args.args
+    assert deployment_id == 42
+    assert owner_user_id == 1
+    assert "Acme Corp / prod (id 42)" in alert_text
 
 
 def _github_signature(secret: str, body: bytes) -> str:
@@ -75,6 +102,7 @@ def test_github_webhook_rejects_when_secret_not_configured(monkeypatch):
 
 def test_github_webhook_accepts_valid_signature_and_schedules_on_failure(monkeypatch):
     monkeypatch.setattr(webhooks, "GITHUB_WEBHOOK_SECRET", "ghsecret")
+    monkeypatch.setattr(webhooks.clients, "find_deployment_by_github_repo", _no_deployment)
     payload = {
         "workflow_run": {
             "id": 99,
@@ -98,10 +126,13 @@ def test_github_webhook_accepts_valid_signature_and_schedules_on_failure(monkeyp
     assert resp.status_code == 200
     assert resp.json() == {"accepted": True, "run_id": 99}
     mock_investigate.assert_called_once()
-    source, source_ref, alert_text = mock_investigate.call_args.args
+    source, source_ref, alert_text, jira_key, deployment_id, owner_user_id = mock_investigate.call_args.args
     assert source == "github"
     assert source_ref == "99"
     assert "owner/repo" in alert_text
+    assert jira_key is None
+    assert deployment_id is None
+    assert owner_user_id is None
 
 
 def test_github_webhook_ignores_non_failure_conclusion(monkeypatch):

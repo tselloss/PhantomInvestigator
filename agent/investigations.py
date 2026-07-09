@@ -1,11 +1,20 @@
 """Persistence for investigations (manual + webhook-triggered), backing the
-operator UI's history, detail, and dashboard-stats views."""
+operator UI's history, detail, and dashboard-stats views. Every investigation
+is owned by exactly one registered user (owner_user_id) -- manual/UI triggers
+set it to whoever is logged in; webhook triggers set it to the resolved
+deployment's owner (see routes/webhooks.py)."""
 import json
 import os
 
 import psycopg
 
 DATABASE_URL = os.environ.get("DATABASE_URL", "postgresql://postgres:postgres@localhost:5433/demo")
+
+# How long a just-triggered investigation counts as a "duplicate" of one
+# already on record -- long enough to absorb webhook retries and accidental
+# double-submits, short enough that a genuinely new incident on the same
+# ticket/deployment shortly after isn't silently swallowed.
+DEDUP_COOLDOWN_MINUTES = int(os.environ.get("DEDUP_COOLDOWN_MINUTES", 10))
 
 CREATE_TABLE_SQL = """
 CREATE TABLE IF NOT EXISTS investigations (
@@ -20,11 +29,23 @@ CREATE TABLE IF NOT EXISTS investigations (
     finished_at TIMESTAMPTZ
 );
 """
-# Separate ALTER for databases created before the `reviewed` column existed --
+# Separate ALTER for databases created before these columns existed --
 # CREATE TABLE IF NOT EXISTS above is a no-op against an existing table.
-MIGRATE_SQL = "ALTER TABLE investigations ADD COLUMN IF NOT EXISTS reviewed BOOLEAN NOT NULL DEFAULT false;"
+# deployment_id/owner_user_id are not real FKs: deployments/users live in
+# separate modules' tables, and any module's _connect() may run first.
+# owner_user_id is nullable/unenforced -- rows created before this change
+# have no owner and become invisible to every user's scoped queries rather
+# than being backfilled, since there's no correct automatic owner for them.
+MIGRATE_SQL = """
+ALTER TABLE investigations ADD COLUMN IF NOT EXISTS reviewed BOOLEAN NOT NULL DEFAULT false;
+ALTER TABLE investigations ADD COLUMN IF NOT EXISTS deployment_id INTEGER;
+ALTER TABLE investigations ADD COLUMN IF NOT EXISTS owner_user_id INTEGER;
+"""
 
-_COLUMNS = ["id", "source", "source_ref", "alert_text", "status", "result", "reviewed", "created_at", "finished_at"]
+_COLUMNS = [
+    "id", "source", "source_ref", "alert_text", "status", "result",
+    "reviewed", "created_at", "finished_at", "deployment_id", "owner_user_id",
+]
 
 
 def _connect():
@@ -38,16 +59,62 @@ def _row_to_dict(row) -> dict:
     return dict(zip(_COLUMNS, row))
 
 
-def start(source: str, source_ref: str | None, alert_text: str) -> int:
+def start(
+    source: str, source_ref: str | None, alert_text: str, owner_user_id: int, deployment_id: int | None = None
+) -> int:
     with _connect() as conn:
         row = conn.execute(
-            "INSERT INTO investigations (source, source_ref, alert_text) VALUES (%s, %s, %s) RETURNING id",
-            (source, source_ref, alert_text),
+            "INSERT INTO investigations (source, source_ref, alert_text, deployment_id, owner_user_id) "
+            "VALUES (%s, %s, %s, %s, %s) RETURNING id",
+            (source, source_ref, alert_text, deployment_id, owner_user_id),
         ).fetchone()
         return row[0]
 
 
+def find_recent_duplicate(
+    source: str,
+    source_ref: str | None,
+    deployment_id: int | None,
+    alert_text: str,
+    owner_user_id: int,
+    cooldown_minutes: int = DEDUP_COOLDOWN_MINUTES,
+) -> dict | None:
+    """A newly-triggered investigation counts as a duplicate of one already
+    on record if it's the same owner and (source, source_ref) -- e.g. a
+    retried Jira/GitHub webhook delivery for the exact same ticket/run -- or,
+    for source_ref-less manual/UI triggers, the same (source, deployment_id,
+    alert_text), and the existing one started within cooldown_minutes. Two
+    different users' identical alert text should never dedupe against each
+    other, hence owner_user_id is always part of the match.
+
+    Callers check this BEFORE start()/run_agent() so a genuine duplicate
+    never spends a token: they return the existing investigation's current
+    state instead of kicking off a new paid run."""
+    if source_ref:
+        query = (
+            "SELECT {} FROM investigations WHERE source = %s AND source_ref = %s AND owner_user_id = %s "
+            "AND created_at >= now() - (%s || ' minutes')::interval "
+            "ORDER BY created_at DESC LIMIT 1"
+        ).format(", ".join(_COLUMNS))
+        params = (source, source_ref, owner_user_id, cooldown_minutes)
+    else:
+        query = (
+            "SELECT {} FROM investigations WHERE source = %s AND alert_text = %s AND owner_user_id = %s "
+            "AND deployment_id IS NOT DISTINCT FROM %s "
+            "AND created_at >= now() - (%s || ' minutes')::interval "
+            "ORDER BY created_at DESC LIMIT 1"
+        ).format(", ".join(_COLUMNS))
+        params = (source, alert_text, owner_user_id, deployment_id, cooldown_minutes)
+
+    with _connect() as conn:
+        row = conn.execute(query, params).fetchone()
+    return _row_to_dict(row) if row else None
+
+
 def finish(investigation_id: int, status: str, result: dict) -> None:
+    """Not owner-scoped: only ever called right after start(), using the id
+    start() itself just returned -- never reachable from a route with a
+    user-supplied id."""
     with _connect() as conn:
         conn.execute(
             "UPDATE investigations SET status = %s, result = %s, finished_at = now() WHERE id = %s",
@@ -55,17 +122,26 @@ def finish(investigation_id: int, status: str, result: dict) -> None:
         )
 
 
-def list_recent(limit: int = 20, offset: int = 0, source: str | None = None, status: str | None = None) -> list[dict]:
+def list_recent(
+    owner_user_id: int,
+    limit: int = 20,
+    offset: int = 0,
+    source: str | None = None,
+    status: str | None = None,
+    deployment_id: int | None = None,
+) -> list[dict]:
     query = "SELECT {} FROM investigations".format(", ".join(_COLUMNS))
-    clauses, params = [], []
+    clauses, params = ["owner_user_id = %s"], [owner_user_id]
     if source:
         clauses.append("source = %s")
         params.append(source)
     if status:
         clauses.append("status = %s")
         params.append(status)
-    if clauses:
-        query += " WHERE " + " AND ".join(clauses)
+    if deployment_id is not None:
+        clauses.append("deployment_id = %s")
+        params.append(deployment_id)
+    query += " WHERE " + " AND ".join(clauses)
     query += " ORDER BY created_at DESC LIMIT %s OFFSET %s"
     params += [limit, offset]
 
@@ -74,27 +150,35 @@ def list_recent(limit: int = 20, offset: int = 0, source: str | None = None, sta
     return [_row_to_dict(r) for r in rows]
 
 
-def get_by_id(investigation_id: int) -> dict | None:
+def get_by_id(investigation_id: int, owner_user_id: int) -> dict | None:
     with _connect() as conn:
         row = conn.execute(
-            "SELECT {} FROM investigations WHERE id = %s".format(", ".join(_COLUMNS)),
-            (investigation_id,),
+            "SELECT {} FROM investigations WHERE id = %s AND owner_user_id = %s".format(", ".join(_COLUMNS)),
+            (investigation_id, owner_user_id),
         ).fetchone()
     return _row_to_dict(row) if row else None
 
 
-def set_reviewed(investigation_id: int, reviewed: bool) -> dict | None:
+def set_reviewed(investigation_id: int, owner_user_id: int, reviewed: bool) -> dict | None:
     with _connect() as conn:
-        conn.execute("UPDATE investigations SET reviewed = %s WHERE id = %s", (reviewed, investigation_id))
-    return get_by_id(investigation_id)
+        conn.execute(
+            "UPDATE investigations SET reviewed = %s WHERE id = %s AND owner_user_id = %s",
+            (reviewed, investigation_id, owner_user_id),
+        )
+    return get_by_id(investigation_id, owner_user_id)
 
 
-def stats(days: int = 7) -> dict:
+def stats(owner_user_id: int, days: int = 7, deployment_id: int | None = None) -> dict:
+    query = (
+        "SELECT status, result FROM investigations "
+        "WHERE owner_user_id = %s AND created_at >= now() - (%s || ' days')::interval"
+    )
+    params = [owner_user_id, days]
+    if deployment_id is not None:
+        query += " AND deployment_id = %s"
+        params.append(deployment_id)
     with _connect() as conn:
-        rows = conn.execute(
-            "SELECT status, result FROM investigations WHERE created_at >= now() - (%s || ' days')::interval",
-            (days,),
-        ).fetchall()
+        rows = conn.execute(query, params).fetchall()
 
     by_status: dict[str, int] = {}
     total_cost = 0.0

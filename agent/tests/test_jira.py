@@ -34,7 +34,7 @@ def test_extract_text_handles_empty():
 
 def test_get_ticket_requires_base_url(monkeypatch):
     monkeypatch.setattr(jira, "JIRA_BASE_URL", "")
-    assert jira.get_ticket("OPS-1").startswith("ERROR")
+    assert jira.get_ticket("OPS-1", 1).startswith("ERROR")
 
 
 @respx.mock
@@ -54,7 +54,7 @@ def test_get_ticket_formats_fields(monkeypatch):
             },
         )
     )
-    result = jira.get_ticket("OPS-1")
+    result = jira.get_ticket("OPS-1", 1)
     assert route.called
     assert "Checkout down" in result
     assert "still broken" in result
@@ -65,13 +65,37 @@ def test_get_ticket_formats_fields(monkeypatch):
 def test_get_ticket_handles_http_error(monkeypatch):
     monkeypatch.setattr(jira, "JIRA_BASE_URL", "https://example.atlassian.net")
     respx.get("https://example.atlassian.net/rest/api/3/issue/OPS-1").mock(return_value=httpx.Response(404))
-    result = jira.get_ticket("OPS-1")
+    result = jira.get_ticket("OPS-1", 1)
     assert result.startswith("ERROR")
+
+
+def test_get_ticket_passes_deployment_id_to_config(monkeypatch):
+    captured = {}
+
+    def fake_config(user_id, deployment_id=None, client_id=None):
+        captured["deployment_id"] = deployment_id
+        return {"base_url": "", "email": "", "api_token": ""}
+
+    monkeypatch.setattr(jira, "_config", fake_config)
+    jira.get_ticket("OPS-1", 1, deployment_id=42)
+    assert captured["deployment_id"] == 42
+
+
+def test_post_comment_passes_deployment_id_to_config(monkeypatch):
+    captured = {}
+
+    def fake_config(user_id, deployment_id=None, client_id=None):
+        captured["deployment_id"] = deployment_id
+        return {"base_url": "", "email": "", "api_token": ""}
+
+    monkeypatch.setattr(jira, "_config", fake_config)
+    jira.post_comment("OPS-1", "body", 1, deployment_id=42)
+    assert captured["deployment_id"] == 42
 
 
 def test_post_comment_requires_base_url(monkeypatch):
     monkeypatch.setattr(jira, "JIRA_BASE_URL", "")
-    assert jira.post_comment("OPS-1", "body").startswith("ERROR")
+    assert jira.post_comment("OPS-1", "body", 1).startswith("ERROR")
 
 
 @respx.mock
@@ -80,7 +104,7 @@ def test_post_comment_sends_adf_payload(monkeypatch):
     route = respx.post("https://example.atlassian.net/rest/api/3/issue/OPS-1/comment").mock(
         return_value=httpx.Response(201, json={})
     )
-    result = jira.post_comment("OPS-1", "root cause: pool exhaustion")
+    result = jira.post_comment("OPS-1", "root cause: pool exhaustion", 1)
 
     assert route.called
     sent_body = json.loads(route.calls[0].request.content)
@@ -94,5 +118,5 @@ def test_post_comment_handles_http_error(monkeypatch):
     monkeypatch.setattr(jira, "JIRA_BASE_URL", "https://example.atlassian.net")
     monkeypatch.setattr("tools._http.time.sleep", lambda s: None)
     respx.post("https://example.atlassian.net/rest/api/3/issue/OPS-1/comment").mock(return_value=httpx.Response(500))
-    result = jira.post_comment("OPS-1", "body")
+    result = jira.post_comment("OPS-1", "body", 1)
     assert result.startswith("ERROR")

@@ -5,7 +5,13 @@ export default function RequireAuth() {
   const { user, checking } = useAuth();
   const location = useLocation();
 
-  if (checking) return <p className="placeholder">Checking session…</p>;
+  if (checking) {
+    return (
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "center", minHeight: "60vh" }}>
+        <span className="spinner">Checking session…</span>
+      </div>
+    );
+  }
   if (!user) return <Navigate to="/login" state={{ from: location }} replace />;
 
   return <Outlet />;

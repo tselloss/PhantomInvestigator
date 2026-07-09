@@ -6,7 +6,7 @@ from tools import github_actions as ga
 
 def test_get_recent_runs_requires_token(monkeypatch):
     monkeypatch.setattr(ga, "GITHUB_TOKEN", "")
-    assert ga.get_recent_runs("owner/repo").startswith("ERROR")
+    assert ga.get_recent_runs("owner/repo", 1).startswith("ERROR")
 
 
 @respx.mock
@@ -30,7 +30,7 @@ def test_get_recent_runs_formats_output(monkeypatch):
             },
         )
     )
-    result = ga.get_recent_runs("owner/repo")
+    result = ga.get_recent_runs("owner/repo", 1)
     assert "run 1" in result
     assert "failure" in result
     assert "abcdef1" in result
@@ -42,7 +42,7 @@ def test_get_recent_runs_empty(monkeypatch):
     respx.get("https://api.github.com/repos/owner/repo/actions/runs").mock(
         return_value=httpx.Response(200, json={"workflow_runs": []})
     )
-    assert ga.get_recent_runs("owner/repo") == "No recent workflow runs found."
+    assert ga.get_recent_runs("owner/repo", 1) == "No recent workflow runs found."
 
 
 @respx.mock
@@ -62,7 +62,7 @@ def test_get_run_logs_only_failed_jobs(monkeypatch):
     respx.get("https://api.github.com/repos/owner/repo/actions/jobs/11/logs").mock(
         return_value=httpx.Response(200, text="AssertionError: boom")
     )
-    result = ga.get_run_logs("owner/repo", 5)
+    result = ga.get_run_logs("owner/repo", 5, 1)
     assert "test" in result
     assert "AssertionError" in result
     assert "build" not in result
@@ -74,7 +74,7 @@ def test_get_run_logs_no_failures(monkeypatch):
     respx.get("https://api.github.com/repos/owner/repo/actions/runs/5/jobs").mock(
         return_value=httpx.Response(200, json={"jobs": [{"id": 10, "name": "build", "conclusion": "success"}]})
     )
-    assert ga.get_run_logs("owner/repo", 5) == "No failed jobs found for run 5."
+    assert ga.get_run_logs("owner/repo", 5, 1) == "No failed jobs found for run 5."
 
 
 @respx.mock
@@ -96,7 +96,7 @@ def test_get_deploy_diff_formats_files(monkeypatch):
             },
         )
     )
-    result = ga.get_deploy_diff("owner/repo", "main", "feature")
+    result = ga.get_deploy_diff("owner/repo", "main", "feature", 1)
     assert "db.py" in result
     assert "POOL_SIZE" in result
 
@@ -106,4 +106,32 @@ def test_get_deploy_diff_http_error(monkeypatch):
     monkeypatch.setattr(ga, "GITHUB_TOKEN", "tok")
     monkeypatch.setattr("tools._http.time.sleep", lambda s: None)
     respx.get("https://api.github.com/repos/owner/repo/compare/main...feature").mock(return_value=httpx.Response(404))
-    assert ga.get_deploy_diff("owner/repo", "main", "feature").startswith("ERROR")
+    assert ga.get_deploy_diff("owner/repo", "main", "feature", 1).startswith("ERROR")
+
+
+def _fake_config_capturing(captured):
+    def fake_config(user_id, deployment_id=None, client_id=None):
+        captured["deployment_id"] = deployment_id
+        return {"token": ""}
+    return fake_config
+
+
+def test_get_recent_runs_passes_deployment_id_to_config(monkeypatch):
+    captured = {}
+    monkeypatch.setattr(ga, "_config", _fake_config_capturing(captured))
+    ga.get_recent_runs("owner/repo", 1, deployment_id=42)
+    assert captured["deployment_id"] == 42
+
+
+def test_get_run_logs_passes_deployment_id_to_config(monkeypatch):
+    captured = {}
+    monkeypatch.setattr(ga, "_config", _fake_config_capturing(captured))
+    ga.get_run_logs("owner/repo", 5, 1, deployment_id=42)
+    assert captured["deployment_id"] == 42
+
+
+def test_get_deploy_diff_passes_deployment_id_to_config(monkeypatch):
+    captured = {}
+    monkeypatch.setattr(ga, "_config", _fake_config_capturing(captured))
+    ga.get_deploy_diff("owner/repo", "main", "feature", 1, deployment_id=42)
+    assert captured["deployment_id"] == 42

@@ -12,7 +12,7 @@ export default function PostmortemView({ pm }) {
         <p>{pm.root_cause}</p>
       </div>
       {pm.timeline?.length > 0 && (
-        <div className="pm-section">
+        <div className="pm-section timeline">
           <h3>Timeline</h3>
           <ul>
             {pm.timeline.map((t, i) => (
