@@ -36,15 +36,24 @@ CREATE TABLE IF NOT EXISTS investigations (
 # owner_user_id is nullable/unenforced -- rows created before this change
 # have no owner and become invisible to every user's scoped queries rather
 # than being backfilled, since there's no correct automatic owner for them.
+# pending_action holds a not-yet-executed high-stakes write (currently only
+# the webhook path's auto-post-to-Jira) awaiting operator approval -- see
+# finish()/resolve_pending_action() and routes/webhooks.py. feedback_rating/
+# feedback_notes are the operator's structured verdict on a finished
+# postmortem (superseding the plain reviewed boolean, kept for filtering).
 MIGRATE_SQL = """
 ALTER TABLE investigations ADD COLUMN IF NOT EXISTS reviewed BOOLEAN NOT NULL DEFAULT false;
 ALTER TABLE investigations ADD COLUMN IF NOT EXISTS deployment_id INTEGER;
 ALTER TABLE investigations ADD COLUMN IF NOT EXISTS owner_user_id INTEGER;
+ALTER TABLE investigations ADD COLUMN IF NOT EXISTS pending_action JSONB;
+ALTER TABLE investigations ADD COLUMN IF NOT EXISTS feedback_rating TEXT;
+ALTER TABLE investigations ADD COLUMN IF NOT EXISTS feedback_notes TEXT;
 """
 
 _COLUMNS = [
     "id", "source", "source_ref", "alert_text", "status", "result",
     "reviewed", "created_at", "finished_at", "deployment_id", "owner_user_id",
+    "pending_action", "feedback_rating", "feedback_notes",
 ]
 
 
@@ -111,14 +120,21 @@ def find_recent_duplicate(
     return _row_to_dict(row) if row else None
 
 
-def finish(investigation_id: int, status: str, result: dict) -> None:
+def finish(investigation_id: int, status: str, result: dict, pending_action: dict | None = None) -> None:
     """Not owner-scoped: only ever called right after start(), using the id
     start() itself just returned -- never reachable from a route with a
-    user-supplied id."""
+    user-supplied id.
+
+    pending_action, when given, overrides status to "awaiting_approval" and
+    records the not-yet-executed high-stakes write (e.g. a Jira comment) for
+    an operator to approve or dismiss via resolve_pending_action() below,
+    instead of it firing unattended the moment the loop finishes."""
+    if pending_action is not None:
+        status = "awaiting_approval"
     with _connect() as conn:
         conn.execute(
-            "UPDATE investigations SET status = %s, result = %s, finished_at = now() WHERE id = %s",
-            (status, json.dumps(result), investigation_id),
+            "UPDATE investigations SET status = %s, result = %s, pending_action = %s, finished_at = now() WHERE id = %s",
+            (status, json.dumps(result), json.dumps(pending_action) if pending_action else None, investigation_id),
         )
 
 
@@ -150,6 +166,19 @@ def list_recent(
     return [_row_to_dict(r) for r in rows]
 
 
+def list_with_feedback(owner_user_id: int, ratings: tuple[str, ...] = ("incorrect", "partial")) -> list[dict]:
+    """Investigations an operator rated as wrong/partially wrong -- the raw
+    material for evals.export_feedback, which turns these into candidate
+    eval fixtures or prompt-fix input instead of letting them sit unused."""
+    query = (
+        "SELECT {} FROM investigations WHERE owner_user_id = %s AND feedback_rating = ANY(%s) "
+        "ORDER BY created_at DESC"
+    ).format(", ".join(_COLUMNS))
+    with _connect() as conn:
+        rows = conn.execute(query, (owner_user_id, list(ratings))).fetchall()
+    return [_row_to_dict(r) for r in rows]
+
+
 def get_by_id(investigation_id: int, owner_user_id: int) -> dict | None:
     with _connect() as conn:
         row = conn.execute(
@@ -159,11 +188,33 @@ def get_by_id(investigation_id: int, owner_user_id: int) -> dict | None:
     return _row_to_dict(row) if row else None
 
 
-def set_reviewed(investigation_id: int, owner_user_id: int, reviewed: bool) -> dict | None:
+def resolve_pending_action(investigation_id: int, owner_user_id: int) -> dict | None:
+    """Clears a pending high-stakes write (approved-and-executed, or
+    dismissed -- the caller decides which by whether it actually performs
+    the action first) and moves the investigation to "done"."""
     with _connect() as conn:
         conn.execute(
-            "UPDATE investigations SET reviewed = %s WHERE id = %s AND owner_user_id = %s",
-            (reviewed, investigation_id, owner_user_id),
+            "UPDATE investigations SET status = 'done', pending_action = NULL "
+            "WHERE id = %s AND owner_user_id = %s",
+            (investigation_id, owner_user_id),
+        )
+    return get_by_id(investigation_id, owner_user_id)
+
+
+def set_feedback(
+    investigation_id: int, owner_user_id: int, reviewed: bool,
+    feedback_rating: str | None = None, feedback_notes: str | None = None,
+) -> dict | None:
+    """Structured verdict on a finished postmortem -- feedback_rating is one
+    of 'correct'/'partial'/'incorrect' (unenforced at the DB layer; the
+    route validates it). reviewed is kept alongside for simple "has anyone
+    looked at this" filtering, and is set to true whenever a rating is
+    given, since rating something implies reviewing it."""
+    with _connect() as conn:
+        conn.execute(
+            "UPDATE investigations SET reviewed = %s, feedback_rating = %s, feedback_notes = %s "
+            "WHERE id = %s AND owner_user_id = %s",
+            (reviewed or feedback_rating is not None, feedback_rating, feedback_notes, investigation_id, owner_user_id),
         )
     return get_by_id(investigation_id, owner_user_id)
 

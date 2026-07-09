@@ -113,20 +113,23 @@ def test_investigate_and_report_no_note_without_deployment(monkeypatch):
     mock_run.assert_called_once_with("run failed", 1, deployment_id=None)
 
 
-def test_investigate_and_report_posts_comment_with_deployment_scoped_credentials(monkeypatch):
+def test_investigate_and_report_queues_pending_jira_post_instead_of_posting(monkeypatch):
+    """A webhook-triggered Jira post is a high-stakes external write, so it
+    must be queued as a pending_action for operator approval (see
+    routes/investigations.py's approve-post) rather than fired immediately."""
     monkeypatch.setattr(webhooks.investigations, "find_recent_duplicate", lambda *a, **kw: None)
     monkeypatch.setattr(webhooks.investigations, "start", lambda *a, **kw: 7)
-    monkeypatch.setattr(webhooks.investigations, "finish", lambda *a, **kw: None)
+    finish_calls = []
+    monkeypatch.setattr(webhooks.investigations, "finish", lambda *a, **kw: finish_calls.append((a, kw)))
     monkeypatch.setattr(webhooks.clients, "is_black_box", lambda deployment_id, owner_user_id: False)
     postmortem = {"title": "Pool exhaustion", "confidence": 0.8, "root_cause": "x", "suggested_fix": "y"}
 
-    with (
-        patch.object(webhooks, "run_agent", return_value={"postmortem": postmortem}),
-        patch.object(webhooks.jira, "post_comment") as mock_post_comment,
-    ):
+    with patch.object(webhooks, "run_agent", return_value={"postmortem": postmortem}):
         webhooks._investigate_and_report("jira", "OPS-1", "checkout down", "OPS-1", deployment_id=42, owner_user_id=1)
 
-    mock_post_comment.assert_called_once()
-    args, kwargs = mock_post_comment.call_args
-    assert args[0] == "OPS-1"
-    assert kwargs.get("deployment_id") == 42
+    assert len(finish_calls) == 1
+    args, kwargs = finish_calls[0]
+    pending_action = kwargs.get("pending_action") if "pending_action" in kwargs else args[3]
+    assert pending_action["type"] == "jira_comment"
+    assert pending_action["key"] == "OPS-1"
+    assert "Pool exhaustion" in pending_action["body"]

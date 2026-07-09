@@ -1,5 +1,7 @@
 # 👻 Phantom Investigator
 
+[![tests](https://github.com/tselloss/PhantomInvestigator/actions/workflows/test.yml/badge.svg)](https://github.com/tselloss/PhantomInvestigator/actions/workflows/test.yml)
+[![evals](https://github.com/tselloss/PhantomInvestigator/actions/workflows/evals.yml/badge.svg)](https://github.com/tselloss/PhantomInvestigator/actions/workflows/evals.yml)
 [![Buy Me A Coffee](https://cdn.buymeacoffee.com/buttons/v2/default-yellow.png)](https://buymeacoffee.com/tsellosskr)
 
 > An AI agent that debugs production incidents like an SRE: reads the Jira ticket, checks recent CI/deploy history, queries metrics and logs, cross-references past postmortems (RAG), and writes a root-cause report — every step traced.
@@ -12,7 +14,7 @@ Built on the same agent architecture as [AIInvestigator](https://github.com/tsel
 2. A webhook fires (`/webhooks/jira` or `/webhooks/github`), which kicks off an investigation in the background.
 3. The agent runs autonomously: reads the triggering ticket or workflow run, checks recent deploy diffs (real GitHub compare API), queries metrics/logs, and searches a runbook knowledge base (hybrid vector + full-text RAG).
 4. It returns a structured root-cause postmortem — title, root cause, confidence, timeline, cited evidence, suggested fix, similar past incidents.
-5. The postmortem is posted back as a Jira comment, and every step (each LLM call, each tool call) is traced in Langfuse.
+5. For webhook-triggered runs, the Jira comment isn't posted unattended: it's queued as a **pending action** for an operator to approve or dismiss from the UI (see Operator console below) — a human-in-the-loop gate on the one externally-visible write the agent can make. Every step (each LLM call, each tool call) is traced in Langfuse, with per-model USD cost estimated and capped per run.
 
 The demo-app + Prometheus/Loki/Grafana stack from AIInvestigator stays in place — useful for exercising the agent loop against synthetic faults without needing live prod access.
 
@@ -38,6 +40,8 @@ The demo-app + Prometheus/Loki/Grafana stack from AIInvestigator stays in place 
                               Structured root-cause postmortem
 ```
 
+*(webhook-triggered `submit_postmortem` → Jira comment is held as a pending action for operator approval, not fired directly — see step 5 above)*
+
 ## Stack
 
 | Layer | Choice | Why |
@@ -51,8 +55,10 @@ The demo-app + Prometheus/Loki/Grafana stack from AIInvestigator stays in place 
 | RAG | PostgreSQL + pgvector + Voyage AI, hybrid search (vector + full-text via RRF) | Boring, production-real, no bespoke vector-DB infra |
 | Metrics/Logs (optional) | Prometheus / Loki + promtail | Kept from AIInvestigator for synthetic-fault testing |
 | LLM tracing | Langfuse (self-hosted) | Full trace tree: spans, generations, tool calls, cost per run |
+| Cost control | Per-model USD pricing table, estimated per call, hard cap per investigation | Stops a runaway loop from burning budget; real cost-per-run instead of just token counts |
+| Human-in-the-loop | Pending-action queue for webhook-triggered Jira comments, approve/dismiss from the UI | The one externally-visible write the agent makes shouldn't fire unattended |
 | Evals | Custom harness + LLM-as-judge | Measured accuracy + quality on injected faults, not vibes |
-| Tests | pytest + respx, mocked | Tool-module request/response handling + webhook auth logic |
+| Tests | pytest + respx, mocked, run on every push/PR via GitHub Actions | Tool-module request/response handling + webhook auth logic |
 | UI | React (Vite) + react-router | Multi-page operator console — see Operator console below |
 | Auth | Signed session cookie (PyJWT), real per-user accounts (argon2-hashed passwords) | Self-service register/login; every user's data is fully isolated |
 | Packaging | Docker Compose | One command up, zero manual clicking |
@@ -69,7 +75,7 @@ The UI (`ui/`) is a multi-page app behind a login:
 | `/dashboard` | Integration health, 7-day stats, recent investigations |
 | `/investigate` | Manual trigger + live SSE investigation view |
 | `/investigations` | Full history, filterable by source/status, paginated |
-| `/investigations/:id` | Full postmortem, source links, re-run, mark reviewed |
+| `/investigations/:id` | Full postmortem, source links, re-run, mark reviewed, approve/dismiss a pending Jira post |
 | `/runbooks` | Ingested runbooks + re-ingest trigger |
 | `/settings/integrations` | Which of Jira/GitHub/Azure/AWS/Prometheus/Loki are configured + live "test connection" |
 | `/demo` | demo-app fault injection + eval harness trigger/viewer |
@@ -141,13 +147,15 @@ needed instead of a tunnel — see Build status below.
 | E | React operator UI | ✅ |
 | F | Azure Monitor + AWS CloudWatch tools | ✅ code complete, needs your Azure/AWS credentials to test live |
 | G | Investigation quality/reliability (calibration, cross-source correlation, retries) | ✅ |
-| H | Test coverage (pytest + respx, tool modules + webhook auth) | ✅ 42 passing |
+| H | Test coverage (pytest + respx, tool modules + webhook auth) | ✅ 242 passing, run in CI on every push/PR |
 | I | Multi-page operator console: nav shell + routing | ✅ |
 | K | Investigation history + detail pages (filters, pagination, mark reviewed, re-run) | ✅ |
 | L | Dashboard (integration health, 7-day stats, recent investigations) | ✅ |
 | M | Runbooks page (list + re-ingest) | ✅ |
 | N | Integrations/Settings page (config status + live test-connection) | ✅ |
 | J | Login-gated access (session cookie, real per-user accounts, register/login) | ✅ |
+| O | Per-user data isolation (runbooks, investigations, credentials) + BYOK AI provider | ✅ |
+| P | Operator-approval gate for Jira posts (human-in-the-loop) + per-model cost tracking/budget cap | ✅ |
 
 Needs a stable public endpoint (small VPS) instead of a tunnel for anything beyond local testing — not done in this pass.
 

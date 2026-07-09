@@ -27,5 +27,8 @@ investigate:   ## run the agent on the current situation (Week 3)
 evals:         ## run the eval harness against the demo-app faults
 	docker compose exec agent python -m evals.run
 
+export-feedback: ## e.g. make export-feedback USER_ID=1 -- dumps investigations rated incorrect/partial to agent/evals/feedback/
+	docker compose exec agent python -m evals.export_feedback $(USER_ID)
+
 test:          ## run the unit tests (tool modules + webhook auth) -- not installed in the prod image
 	docker compose exec agent sh -c "pip install -q -r requirements-dev.txt && python -m pytest tests/ -v"

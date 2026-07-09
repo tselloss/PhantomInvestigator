@@ -230,7 +230,7 @@ button.danger:hover:not(:disabled) {
   border-color: var(--err);
 }
 
-input[type="text"], input[type="password"], select {
+input[type="text"], input[type="password"], select, textarea {
   padding: 10px 13px;
   border-radius: var(--radius-sm);
   border: 1px solid var(--border);
@@ -238,15 +238,16 @@ input[type="text"], input[type="password"], select {
   color: var(--text);
   flex: 1;
   min-width: 190px;
+  font: inherit;
   transition: border-color 0.15s ease, box-shadow 0.15s ease;
 }
-input[type="text"]::placeholder, input[type="password"]::placeholder {
+input[type="text"]::placeholder, input[type="password"]::placeholder, textarea::placeholder {
   color: #5c6172;
 }
-input[type="text"]:hover, input[type="password"]:hover, select:hover {
+input[type="text"]:hover, input[type="password"]:hover, select:hover, textarea:hover {
   border-color: #3a3f4f;
 }
-input[type="text"]:focus, input[type="password"]:focus, select:focus,
+input[type="text"]:focus, input[type="password"]:focus, select:focus, textarea:focus,
 button:focus-visible {
   outline: none;
   border-color: var(--accent);
@@ -481,13 +482,15 @@ a.feed-row:hover {
 .feed-status.done,
 .feed-status.partial,
 .feed-status.error,
-.feed-status.running {
+.feed-status.running,
+.feed-status.awaiting_approval {
   gap: 6px;
 }
 .feed-status.done::before,
 .feed-status.partial::before,
 .feed-status.error::before,
-.feed-status.running::before {
+.feed-status.running::before,
+.feed-status.awaiting_approval::before {
   content: "";
   width: 6px;
   height: 6px;
@@ -497,7 +500,8 @@ a.feed-row:hover {
 .feed-status.done {
   color: var(--ok);
 }
-.feed-status.partial {
+.feed-status.partial,
+.feed-status.awaiting_approval {
   color: var(--warn);
 }
 .feed-status.error {
@@ -634,10 +638,13 @@ code {
   margin-top: 0;
 }
 
-.stat-tile, .integration-tile {
+.stat-tile, .integration-tile, .panel {
   border-radius: var(--radius-md);
   border: 1px solid var(--border-soft);
   background: rgba(255, 255, 255, 0.015);
+}
+.panel {
+  padding: 16px;
 }
 .stat-tile {
   text-align: center;

@@ -78,6 +78,7 @@ export default function Investigations() {
           >
             <option value="">All statuses</option>
             <option value="running">Running</option>
+            <option value="awaiting_approval">Awaiting approval</option>
             <option value="done">Done</option>
             <option value="partial">Partial</option>
             <option value="error">Error</option>

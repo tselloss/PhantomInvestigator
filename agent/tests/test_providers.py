@@ -131,4 +131,52 @@ def test_openai_provider_step_normalizes_tool_call_response():
     result = provider.step(system="sys", tools=[], messages=[{"role": "user", "content": "hi"}])
     assert result["stop_reason"] == "tool_use"
     assert result["blocks"] == [{"type": "tool_use", "id": "call_2", "name": "get_recent_changes", "input": {}}]
-    assert result["usage"] == {"input_tokens": 120, "output_tokens": 40}
+    assert result["usage"] == {
+        "input_tokens": 120, "output_tokens": 40,
+        "cache_creation_input_tokens": 0, "cache_read_input_tokens": 0,
+    }
+
+
+def test_anthropic_provider_step_marks_system_and_last_tool_cacheable():
+    """System prompt + TOOL_SCHEMAS are identical on every step of a run --
+    marking the last block of each with cache_control lets steps 2+ read
+    them from Anthropic's prompt cache instead of paying full price again."""
+    class FakeUsage:
+        input_tokens = 50
+        output_tokens = 10
+        cache_creation_input_tokens = 1200
+        cache_read_input_tokens = 0
+
+    class FakeResponse:
+        content = []
+        stop_reason = "end_turn"
+        usage = FakeUsage()
+
+    class FakeMessages:
+        def create(self, **kwargs):
+            self.kwargs = kwargs
+            return FakeResponse()
+
+    class FakeClient:
+        def __init__(self):
+            self.messages = FakeMessages()
+
+    provider = providers.AnthropicProvider.__new__(providers.AnthropicProvider)
+    provider.client = FakeClient()
+    provider.model = "claude-haiku-4-5"
+
+    tools = [{"name": "tool_a", "input_schema": {}}, {"name": "tool_b", "input_schema": {}}]
+    result = provider.step(system="you are an investigator", tools=tools, messages=[])
+
+    sent_kwargs = provider.client.messages.kwargs
+    assert sent_kwargs["system"] == [
+        {"type": "text", "text": "you are an investigator", "cache_control": {"type": "ephemeral"}}
+    ]
+    assert sent_kwargs["tools"][0] == {"name": "tool_a", "input_schema": {}}
+    assert sent_kwargs["tools"][1] == {"name": "tool_b", "input_schema": {}, "cache_control": {"type": "ephemeral"}}
+    # original TOOL_SCHEMAS list/dicts must not be mutated in place
+    assert tools[1] == {"name": "tool_b", "input_schema": {}}
+    assert result["usage"] == {
+        "input_tokens": 50, "output_tokens": 10,
+        "cache_creation_input_tokens": 1200, "cache_read_input_tokens": 0,
+    }
