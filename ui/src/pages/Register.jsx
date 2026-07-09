@@ -22,9 +22,9 @@ export default function Register() {
   }
 
   return (
-    <main style={{ maxWidth: 380, margin: "12vh auto 0" }}>
+    <div className="auth-page" style={{ maxWidth: 380, margin: "0 auto" }}>
       <div style={{ textAlign: "center", marginBottom: 22 }}>
-        <span className="brand-mark" style={{ width: 48, height: 48, fontSize: 24, margin: "0 auto 14px" }}>
+        <span className="brand-mark hero-mark" style={{ width: 48, height: 48, fontSize: 24, margin: "0 auto 14px" }}>
           👻
         </span>
         <h2 style={{ margin: "0 0 4px", fontSize: 19, fontWeight: 700 }}>Phantom Investigator</h2>
@@ -58,13 +58,13 @@ export default function Register() {
             <button className="primary" type="submit" disabled={submitting} style={{ justifyContent: "center", marginTop: 4 }}>
               {submitting ? "Creating account…" : "Create account"}
             </button>
-            {error && <p style={{ color: "var(--err)", fontSize: 13, margin: 0 }}>{error}</p>}
+            {error && <div className="alert err" style={{ margin: 0 }}>{error}</div>}
           </div>
         </form>
       </section>
       <p className="placeholder" style={{ textAlign: "center", fontSize: 13, marginTop: 14 }}>
         Already have an account? <Link to="/login">Sign in</Link>
       </p>
-    </main>
+    </div>
   );
 }

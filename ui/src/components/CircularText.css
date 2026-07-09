@@ -1,0 +1,44 @@
+.circular-text-wrap {
+  --ct-scale: 1;
+  position: relative;
+  margin: 0 auto;
+  transform: scale(var(--ct-scale));
+  transition: transform 0.4s cubic-bezier(0, 0, 0, 1);
+}
+.circular-text {
+  position: absolute;
+  inset: 0;
+  border-radius: 50%;
+  cursor: default;
+  animation-name: circular-text-spin;
+  animation-timing-function: linear;
+  animation-iteration-count: infinite;
+}
+.circular-text span {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform-origin: 0 0;
+  font-size: 11px;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.02em;
+  color: var(--accent-strong);
+}
+.circular-text-center {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--accent);
+}
+
+@keyframes circular-text-spin {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
+}

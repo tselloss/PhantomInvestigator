@@ -90,10 +90,12 @@ export default function Demo() {
             {evalRunning ? "Running…" : "Run evals"}
           </button>
         </div>
-        {evalError && <p style={{ color: "var(--err)" }}>{evalError}</p>}
+        {evalError && <div className="alert err">{evalError}</div>}
         {evalResult && (
           <div style={{ marginTop: 12 }}>
-            <p className="pm-meta">Latest run: {evalResult.filename}</p>
+            <p className="pm-meta">
+              Latest run: <span className="tag">{evalResult.filename}</span>
+            </p>
             <pre>{JSON.stringify(evalResult.summary, null, 2)}</pre>
           </div>
         )}

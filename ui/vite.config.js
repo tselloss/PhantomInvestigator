@@ -6,9 +6,9 @@ export default defineConfig({
   plugins: [react()],
   server: {
     proxy: {
-      '/api': 'http://localhost:8099',
-      '/auth': 'http://localhost:8099',
-      '/health': 'http://localhost:8099',
+      '/api': 'http://localhost:8085',
+      '/auth': 'http://localhost:8085',
+      '/health': 'http://localhost:8085',
     },
   },
 })

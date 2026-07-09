@@ -58,7 +58,7 @@ export default function InvestigationDetail() {
     }
   }
 
-  if (error) return <p className="placeholder">Couldn't load investigation: {error}</p>;
+  if (error) return <div className="alert err">Couldn't load investigation: {error}</div>;
   if (!item) {
     return (
       <section>
@@ -97,12 +97,16 @@ export default function InvestigationDetail() {
       </div>
 
       <div style={{ marginTop: 16 }}>
-        <p className="pm-meta">
-          <span className="feed-source">{item.source}</span>
-          {sourceLink && ` · ${sourceLink.label}`}
-          {deployment && ` · ${deployment.client_name} / ${deployment.label}`}
-          {" · "}{item.status} · {new Date(item.created_at).toLocaleString()}
-        </p>
+        <div className="row" style={{ marginBottom: 16 }}>
+          <span className="tag accent">{item.source}</span>
+          <span className={"badge " + (item.status === "done" ? "ok" : item.status === "error" ? "err" : "warn")}>
+            {item.status}
+          </span>
+          {sourceLink && <span className="tag">{sourceLink.label}</span>}
+          {deployment && <span className="tag">{deployment.client_name} / {deployment.label}</span>}
+          {item.reviewed && <span className="badge ok">reviewed</span>}
+          <span className="feed-meta">{new Date(item.created_at).toLocaleString()}</span>
+        </div>
 
         {pm ? <PostmortemView pm={pm} /> : <pre>{item.result?.result || "No structured postmortem for this run."}</pre>}
       </div>
