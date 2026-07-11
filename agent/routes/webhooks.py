@@ -9,6 +9,7 @@ import os
 import structlog
 from fastapi import APIRouter, BackgroundTasks, Header, HTTPException, Request
 
+import billing
 import clients
 import investigations
 from loop import run_agent
@@ -74,6 +75,14 @@ def _investigate_and_report(
         log.info(
             "webhook.deduped", source=source, source_ref=source_ref,
             existing_investigation_id=duplicate["id"],
+        )
+        return
+
+    budget = billing.check_budget(owner_user_id)
+    if not budget["allowed"]:
+        log.info(
+            "webhook.budget_exceeded", source=source, source_ref=source_ref, owner_user_id=owner_user_id,
+            spent_usd=budget["spent_usd"], limit_usd=budget["limit_usd"],
         )
         return
 

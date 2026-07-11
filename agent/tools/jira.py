@@ -4,7 +4,9 @@ import os
 
 import httpx
 
+import demo_data
 import integration_credentials
+import users
 from ._http import request_with_retry
 
 JIRA_BASE_URL = os.environ.get("JIRA_BASE_URL", "")
@@ -52,9 +54,20 @@ def _extract_text(adf) -> str:
     return " ".join(texts)
 
 
+def issue_url(key: str, user_id: int, deployment_id: int | None = None) -> str | None:
+    """Browser-facing link for a ticket, resolved with the same per-deployment/
+    per-user override precedence as every other Jira call -- None when no
+    base_url is configured at all, so callers can omit the link instead of
+    rendering one that 404s."""
+    base_url = _config(user_id, deployment_id=deployment_id)["base_url"]
+    return f"{base_url}/browse/{key}" if base_url else None
+
+
 def get_ticket(key: str, user_id: int, deployment_id: int | None = None) -> str:
     cfg = _config(user_id, deployment_id=deployment_id)
     if not cfg["base_url"]:
+        if users.get_demo_mode(user_id):
+            return demo_data.jira_ticket(key)
         return "ERROR: JIRA_BASE_URL not configured"
     try:
         resp = request_with_retry(
@@ -88,6 +101,8 @@ def get_ticket(key: str, user_id: int, deployment_id: int | None = None) -> str:
 def post_comment(key: str, body: str, user_id: int, deployment_id: int | None = None) -> str:
     cfg = _config(user_id, deployment_id=deployment_id)
     if not cfg["base_url"]:
+        if users.get_demo_mode(user_id):
+            return demo_data.jira_post_comment(key)
         return "ERROR: JIRA_BASE_URL not configured"
     payload = {
         "body": {

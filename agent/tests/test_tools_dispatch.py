@@ -99,3 +99,8 @@ def test_execute_tool_threads_deployment_id_to_aws_metrics(monkeypatch):
     assert tools.execute_tool(
         "query_aws_metrics", {"namespace": "AWS/EC2", "metric_name": "CPUUtilization", "deployment_id": 7}, 1
     ) == 7
+
+
+def test_execute_tool_threads_deployment_id_to_support_tickets(monkeypatch):
+    monkeypatch.setattr(tools.zendesk, "search_tickets", lambda query, user_id, deployment_id=None: deployment_id)
+    assert tools.execute_tool("search_support_tickets", {"query": "checkout", "deployment_id": 7}, 1) == 7

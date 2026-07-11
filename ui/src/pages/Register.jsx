@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { Link, Navigate, useLocation } from "react-router-dom";
 import { useAuth } from "../context/AuthContext";
+import GoogleSignInButton from "../components/GoogleSignInButton";
 
 export default function Register() {
   const { user, error, register } = useAuth();
@@ -27,7 +28,9 @@ export default function Register() {
         <span className="brand-mark hero-mark" style={{ width: 48, height: 48, fontSize: 24, margin: "0 auto 14px" }}>
           👻
         </span>
-        <h2 style={{ margin: "0 0 4px", fontSize: 19, fontWeight: 700 }}>Phantom Investigator</h2>
+        <h2 className="brand-shine" style={{ margin: "0 0 4px", fontSize: 19, fontWeight: 700 }}>
+          Phantom Investigator
+        </h2>
         <p className="placeholder" style={{ margin: 0, fontSize: 13 }}>
           Create your own account — your own workspace, your own AI key
         </p>
@@ -61,6 +64,7 @@ export default function Register() {
             {error && <div className="alert err" style={{ margin: 0 }}>{error}</div>}
           </div>
         </form>
+        <GoogleSignInButton />
       </section>
       <p className="placeholder" style={{ textAlign: "center", fontSize: 13, marginTop: 14 }}>
         Already have an account? <Link to="/login">Sign in</Link>

@@ -18,10 +18,12 @@ def list_investigations(
     source: str | None = None,
     status: str | None = None,
     deployment_id: int | None = None,
+    reviewed: bool | None = None,
     user: dict = Depends(get_current_user),
 ):
     return store.list_recent(
-        user["user_id"], limit=limit, offset=offset, source=source, status=status, deployment_id=deployment_id
+        user["user_id"], limit=limit, offset=offset, source=source, status=status,
+        deployment_id=deployment_id, reviewed=reviewed,
     )
 
 
@@ -35,6 +37,8 @@ def get_investigation(investigation_id: int, user: dict = Depends(get_current_us
     item = store.get_by_id(investigation_id, user["user_id"])
     if not item:
         raise HTTPException(404, "investigation not found")
+    if item["source"] == "jira" and item["source_ref"]:
+        item["jira_url"] = jira.issue_url(item["source_ref"], user["user_id"], deployment_id=item.get("deployment_id"))
     return item
 
 

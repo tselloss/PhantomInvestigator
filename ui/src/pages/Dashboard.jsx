@@ -2,6 +2,9 @@ import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import Icon from "../components/Icon";
 import MagicBento from "../components/MagicBento";
+import FeedRow from "../components/FeedRow";
+import EmptyState from "../components/EmptyState";
+import { integrationLabel, integrationRole } from "../lib/integrations";
 
 const QUICK_ACTIONS = [
   {
@@ -84,14 +87,19 @@ export default function Dashboard() {
 
       <section>
         <h2>Integration health</h2>
-        <div className="fault-grid">
+        <div className="fault-grid integration-grid">
           {integrations.map((i) => (
-            <div key={i.name} className="integration-tile">
-              <span className="feed-source">{i.name}</span>
+            <Link
+              key={i.name}
+              to="/settings/integrations"
+              className={"integration-tile " + (i.configured ? "ok" : "warn")}
+            >
+              <span className="feed-source">{integrationLabel(i.name)}</span>
+              <span className="feed-meta">{integrationRole(i.name)}</span>
               <span className={"badge " + (i.configured ? "ok" : "warn")}>
                 {i.configured ? "configured" : "not configured"}
               </span>
-            </div>
+            </Link>
           ))}
           {integrations.length === 0 && (
             <>
@@ -133,21 +141,21 @@ export default function Dashboard() {
           </Link>
         </div>
         {recent.length === 0 && (
-          <div className="empty-state">
-            <Icon name="inbox" size={30} />
-            <p>No investigations yet — start one above.</p>
-          </div>
+          <EmptyState
+            action={
+              <Link to="/investigate">
+                <button className="primary" style={{ marginTop: 10 }}>
+                  <Icon name="plus" size={14} />
+                  Run your first investigation
+                </button>
+              </Link>
+            }
+          >
+            No investigations yet.
+          </EmptyState>
         )}
-        {recent.map((it) => (
-          <Link className="feed-row" to={`/investigations/${it.id}`} key={it.id}>
-            <div>
-              <span className="feed-source">{it.source}</span>
-              {it.source_ref ? ` ${it.source_ref}` : ""}
-              {" — "}
-              {it.alert_text.length > 80 ? it.alert_text.slice(0, 80) + "…" : it.alert_text}
-            </div>
-            <div className={"feed-status " + it.status}>{it.status}</div>
-          </Link>
+        {recent.map((it, i) => (
+          <FeedRow item={it} key={it.id} index={i} />
         ))}
       </section>
     </>

@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import Icon from "../components/Icon";
 import PostmortemView from "../components/PostmortemView";
+import { useToast } from "../context/ToastContext";
 
 const FEEDBACK_LABELS = { correct: "Correct", partial: "Partially correct", incorrect: "Incorrect" };
 const FEEDBACK_BADGE_CLASS = { correct: "ok", partial: "warn", incorrect: "err" };
@@ -9,6 +10,7 @@ const FEEDBACK_BADGE_CLASS = { correct: "ok", partial: "warn", incorrect: "err" 
 export default function InvestigationDetail() {
   const { id } = useParams();
   const navigate = useNavigate();
+  const toast = useToast();
   const [item, setItem] = useState(null);
   const [error, setError] = useState(null);
   const [rerunning, setRerunning] = useState(false);
@@ -45,7 +47,15 @@ export default function InvestigationDetail() {
     setResolvingPost(true);
     try {
       const res = await fetch(`/api/investigations/${id}/${action}`, { method: "POST" });
-      if (res.ok) setItem(await res.json());
+      if (!res.ok) {
+        const detail = await res.json().catch(() => ({}));
+        toast.show(detail.detail || `That didn't go through (HTTP ${res.status}).`, { type: "err" });
+        return;
+      }
+      setItem(await res.json());
+      toast.show(action === "approve-post" ? "Posted to Jira." : "Discarded.", { type: "ok" });
+    } catch {
+      toast.show("Couldn't reach the server — check your connection.", { type: "err" });
     } finally {
       setResolvingPost(false);
     }
@@ -59,10 +69,16 @@ export default function InvestigationDetail() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ reviewed: true, feedback_rating: rating, feedback_notes: feedbackNotes || null }),
       });
-      if (res.ok) {
-        setItem(await res.json());
-        setEditingFeedback(false);
+      if (!res.ok) {
+        const detail = await res.json().catch(() => ({}));
+        toast.show(detail.detail || `Couldn't save feedback (HTTP ${res.status}).`, { type: "err" });
+        return;
       }
+      setItem(await res.json());
+      setEditingFeedback(false);
+      toast.show("Feedback saved.", { type: "ok" });
+    } catch {
+      toast.show("Couldn't save feedback — check your connection.", { type: "err" });
     } finally {
       setSavingFeedback(false);
     }
@@ -71,12 +87,21 @@ export default function InvestigationDetail() {
   async function rerun() {
     setRerunning(true);
     try {
-      await fetch("/api/investigate", {
+      const res = await fetch("/api/investigate", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ alert: item.alert_text, deployment_id: item.deployment_id }),
       });
-      navigate("/investigations");
+      if (!res.ok) {
+        const detail = await res.json().catch(() => ({}));
+        toast.show(detail.detail || `Couldn't start a re-run (HTTP ${res.status}).`, { type: "err" });
+        return;
+      }
+      const body = await res.json();
+      toast.show("Re-run started.", { type: "ok" });
+      navigate(`/investigations/${body.investigation_id}`);
+    } catch {
+      toast.show("Couldn't start a re-run — check your connection.", { type: "err" });
     } finally {
       setRerunning(false);
     }
@@ -96,10 +121,14 @@ export default function InvestigationDetail() {
 
   const pm = item.result?.postmortem;
   const sourceLink =
-    item.source === "jira" && item.source_ref
-      ? { href: "#", label: `Jira ${item.source_ref}` } // Jira base URL isn't exposed to the frontend; label only.
+    item.source === "jira" && item.source_ref && item.jira_url
+      ? { href: item.jira_url, label: `Jira ${item.source_ref}` }
+      : item.source === "github" && item.source_ref && deployment?.github_repo
+      ? { href: `https://github.com/${deployment.github_repo}/actions/runs/${item.source_ref}`, label: `GitHub run ${item.source_ref}` }
+      : item.source === "jira" && item.source_ref
+      ? { href: null, label: `Jira ${item.source_ref}` }
       : item.source === "github" && item.source_ref
-      ? { href: "#", label: `GitHub run ${item.source_ref}` }
+      ? { href: null, label: `GitHub run ${item.source_ref}` }
       : null;
 
   return (
@@ -122,7 +151,13 @@ export default function InvestigationDetail() {
           <span className={"badge " + (item.status === "done" ? "ok" : item.status === "error" ? "err" : "warn")}>
             {item.status}
           </span>
-          {sourceLink && <span className="tag">{sourceLink.label}</span>}
+          {sourceLink && sourceLink.href && (
+            <a className="tag" href={sourceLink.href} target="_blank" rel="noopener noreferrer">
+              {sourceLink.label}
+              <Icon name="arrowLeft" size={11} style={{ transform: "rotate(135deg)" }} />
+            </a>
+          )}
+          {sourceLink && !sourceLink.href && <span className="tag">{sourceLink.label}</span>}
           {deployment && <span className="tag">{deployment.client_name} / {deployment.label}</span>}
           {item.feedback_rating && (
             <span className={"badge " + FEEDBACK_BADGE_CLASS[item.feedback_rating]}>

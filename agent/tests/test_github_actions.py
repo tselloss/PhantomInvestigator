@@ -9,6 +9,27 @@ def test_get_recent_runs_requires_token(monkeypatch):
     assert ga.get_recent_runs("owner/repo", 1).startswith("ERROR")
 
 
+def test_get_recent_runs_returns_demo_data_when_demo_mode_enabled(monkeypatch):
+    monkeypatch.setattr(ga, "GITHUB_TOKEN", "")
+    monkeypatch.setattr(ga.users, "get_demo_mode", lambda user_id: True)
+    result = ga.get_recent_runs("owner/repo", 1)
+    assert "DEMO DATA" in result
+
+
+def test_get_run_logs_returns_demo_data_when_demo_mode_enabled(monkeypatch):
+    monkeypatch.setattr(ga, "GITHUB_TOKEN", "")
+    monkeypatch.setattr(ga.users, "get_demo_mode", lambda user_id: True)
+    result = ga.get_run_logs("owner/repo", 5, 1)
+    assert "DEMO DATA" in result
+
+
+def test_get_deploy_diff_returns_demo_data_when_demo_mode_enabled(monkeypatch):
+    monkeypatch.setattr(ga, "GITHUB_TOKEN", "")
+    monkeypatch.setattr(ga.users, "get_demo_mode", lambda user_id: True)
+    result = ga.get_deploy_diff("owner/repo", "main", "feature", 1)
+    assert "DEMO DATA" in result
+
+
 @respx.mock
 def test_get_recent_runs_formats_output(monkeypatch):
     monkeypatch.setattr(ga, "GITHUB_TOKEN", "tok")

@@ -1,7 +1,19 @@
 from unittest.mock import patch
 
+import pytest
+
 import clients
 from routes import webhooks
+
+
+@pytest.fixture(autouse=True)
+def budget_ok(monkeypatch):
+    """_investigate_and_report now checks billing.check_budget before
+    starting a run -- default it to always-allowed so the many tests below
+    that aren't about budgeting don't need to know about it (real
+    check_budget would hit a live DB, which isn't available in these unit
+    tests). Budget-specific tests override this."""
+    monkeypatch.setattr(webhooks.billing, "check_budget", lambda user_id: {"allowed": True, "spent_usd": 0.0, "limit_usd": None})
 
 
 def test_build_loop_alert_text_no_deployment():
@@ -65,6 +77,32 @@ def test_investigate_and_report_skips_run_agent_when_duplicate_found(monkeypatch
         webhooks._investigate_and_report("jira", "OPS-1", "checkout down", "OPS-1", deployment_id=42, owner_user_id=1)
 
     mock_run.assert_not_called()
+
+
+def test_investigate_and_report_skips_run_agent_when_budget_exceeded(monkeypatch):
+    monkeypatch.setattr(webhooks.investigations, "find_recent_duplicate", lambda *a, **kw: None)
+    monkeypatch.setattr(webhooks.billing, "check_budget", lambda user_id: {"allowed": False, "spent_usd": 10.0, "limit_usd": 10.0})
+    monkeypatch.setattr(
+        webhooks.investigations, "start",
+        lambda *a, **kw: (_ for _ in ()).throw(AssertionError("should not start a new investigation")),
+    )
+
+    with patch.object(webhooks, "run_agent") as mock_run:
+        webhooks._investigate_and_report("jira", "OPS-1", "checkout down", "OPS-1", deployment_id=42, owner_user_id=1)
+
+    mock_run.assert_not_called()
+
+
+def test_investigate_and_report_proceeds_when_budget_ok(monkeypatch):
+    monkeypatch.setattr(webhooks.investigations, "find_recent_duplicate", lambda *a, **kw: None)
+    monkeypatch.setattr(webhooks.billing, "check_budget", lambda user_id: {"allowed": True, "spent_usd": 1.0, "limit_usd": 10.0})
+    monkeypatch.setattr(webhooks.investigations, "start", lambda *a, **kw: 8)
+    monkeypatch.setattr(webhooks.investigations, "finish", lambda *a, **kw: None)
+
+    with patch.object(webhooks, "run_agent", return_value={"postmortem": None}) as mock_run:
+        webhooks._investigate_and_report("jira", "OPS-1", "checkout down", "OPS-1", deployment_id=42, owner_user_id=1)
+
+    mock_run.assert_called_once()
 
 
 def test_investigate_and_report_skips_entirely_when_no_owner_resolved(monkeypatch):

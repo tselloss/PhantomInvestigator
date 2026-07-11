@@ -17,6 +17,13 @@ def test_query_logs_requires_config(monkeypatch):
     assert az.query_logs("Traces | take 5", 1).startswith("ERROR")
 
 
+def test_query_logs_returns_demo_data_when_demo_mode_enabled(monkeypatch):
+    _configure(monkeypatch, workspace=False)
+    monkeypatch.setattr(az.users, "get_demo_mode", lambda user_id: True)
+    result = az.query_logs("Traces | take 5", 1)
+    assert "DEMO DATA" in result
+
+
 def test_query_logs_formats_rows(monkeypatch):
     _configure(monkeypatch)
 
@@ -56,6 +63,13 @@ def test_query_logs_handles_sdk_exception(monkeypatch):
 def test_query_metrics_requires_config(monkeypatch):
     monkeypatch.setattr(az, "AZURE_TENANT_ID", "")
     assert az.query_metrics("/subscriptions/x", "Microsoft.Compute/virtualMachines", "Percentage CPU", 1).startswith("ERROR")
+
+
+def test_query_metrics_returns_demo_data_when_demo_mode_enabled(monkeypatch):
+    monkeypatch.setattr(az, "AZURE_TENANT_ID", "")
+    monkeypatch.setattr(az.users, "get_demo_mode", lambda user_id: True)
+    result = az.query_metrics("/subscriptions/x", "Microsoft.Compute/virtualMachines", "Percentage CPU", 1)
+    assert "DEMO DATA" in result
 
 
 def test_query_metrics_requires_endpoint(monkeypatch):

@@ -1,5 +1,5 @@
 import settings
-from tools import jira
+from tools import jira, zendesk
 
 
 def test_client_integration_status_reports_own_override(monkeypatch):
@@ -110,5 +110,34 @@ def test_test_client_integration_jira_uses_client_scoped_config(monkeypatch):
 
     monkeypatch.setattr(settings.httpx, "get", lambda *a, **kw: FakeResponse())
     result = settings.test_client_integration(7, 1, "jira")
+    assert result["ok"] is True
+    assert "Ops Bot" in result["detail"]
+
+
+def test_client_integration_status_includes_zendesk(monkeypatch):
+    monkeypatch.setattr(settings.integration_credentials, "has_client_override", lambda client_id, user_id, name: False)
+    monkeypatch.setattr(settings.integration_credentials, "has_override", lambda user_id, name: False)
+    monkeypatch.setattr(settings, "_client_configured", lambda client_id, user_id, name: False)
+
+    result = settings.client_integration_status(7, 1)
+    assert any(r["name"] == "zendesk" for r in result)
+
+
+def test_test_client_integration_zendesk_uses_client_scoped_config(monkeypatch):
+    monkeypatch.setattr(settings, "_client_configured", lambda client_id, user_id, name: True)
+    monkeypatch.setattr(
+        zendesk, "_config",
+        lambda user_id, deployment_id=None, client_id=None: {"subdomain": "acme", "email": "ops@acme.com", "api_token": "tok"},
+    )
+
+    class FakeResponse:
+        def raise_for_status(self):
+            pass
+
+        def json(self):
+            return {"user": {"name": "Ops Bot"}}
+
+    monkeypatch.setattr(settings.httpx, "get", lambda *a, **kw: FakeResponse())
+    result = settings.test_client_integration(7, 1, "zendesk")
     assert result["ok"] is True
     assert "Ops Bot" in result["detail"]

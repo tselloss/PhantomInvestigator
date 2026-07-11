@@ -25,7 +25,7 @@ from cryptography.fernet import Fernet, InvalidToken
 
 log = structlog.get_logger(__name__)
 
-DATABASE_URL = os.environ.get("DATABASE_URL", "postgresql://postgres:postgres@localhost:5433/demo")
+DATABASE_URL = os.environ.get("DATABASE_URL", "postgresql://postgres:postgres@localhost:5533/demo")
 
 CREATE_TABLE_SQL = """
 CREATE TABLE IF NOT EXISTS integration_credentials (

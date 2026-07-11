@@ -3,6 +3,7 @@ Literal-path routes (integrations, integrations/fields) are declared before
 the {name} routes so they aren't shadowed -- same reasoning as
 investigations.py's /stats route."""
 from fastapi import APIRouter, Depends, HTTPException
+from pydantic import BaseModel
 
 import settings as integration_settings
 from routes.auth import get_current_user
@@ -74,3 +75,29 @@ def clear_ai_provider(user: dict = Depends(get_current_user)):
 @router.post("/ai/test")
 def test_ai_provider(user: dict = Depends(get_current_user)):
     return integration_settings.test_ai_provider(user["user_id"])
+
+
+@router.get("/profile")
+def get_profile(user: dict = Depends(get_current_user)):
+    return integration_settings.get_profile(user["user_id"])
+
+
+class SetLimitRequest(BaseModel):
+    monthly_limit_usd: float | None = None
+
+
+@router.post("/profile/limit")
+def set_monthly_limit(req: SetLimitRequest, user: dict = Depends(get_current_user)):
+    try:
+        return integration_settings.set_monthly_limit(user["user_id"], req.monthly_limit_usd)
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+
+
+class SetDemoModeRequest(BaseModel):
+    enabled: bool
+
+
+@router.post("/profile/demo-mode")
+def set_demo_mode(req: SetDemoModeRequest, user: dict = Depends(get_current_user)):
+    return integration_settings.set_demo_mode(user["user_id"], req.enabled)

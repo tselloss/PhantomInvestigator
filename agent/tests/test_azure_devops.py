@@ -23,6 +23,14 @@ def test_get_work_item_requires_config(monkeypatch):
     assert ado.get_work_item(42, 1).startswith("ERROR")
 
 
+def test_get_work_item_returns_demo_data_when_demo_mode_enabled(monkeypatch):
+    monkeypatch.setattr(ado, "AZURE_DEVOPS_ORG", "")
+    monkeypatch.setattr(ado.users, "get_demo_mode", lambda user_id: True)
+    result = ado.get_work_item(42, 1)
+    assert "DEMO DATA" in result
+    assert "42" in result
+
+
 @respx.mock
 def test_get_work_item_formats_fields(monkeypatch):
     _configure(monkeypatch)
@@ -73,6 +81,14 @@ def test_get_work_item_tolerates_comments_endpoint_failure(monkeypatch):
     result = ado.get_work_item(42, 1)
     assert "Investigate" in result
     assert not result.startswith("ERROR")
+
+
+def test_post_comment_returns_demo_data_when_demo_mode_enabled(monkeypatch):
+    monkeypatch.setattr(ado, "AZURE_DEVOPS_PAT", "")
+    monkeypatch.setattr(ado.users, "get_demo_mode", lambda user_id: True)
+    result = ado.post_comment(42, "body", 1)
+    assert "demo mode" in result
+    assert "42" in result
 
 
 def test_post_comment_requires_config(monkeypatch):

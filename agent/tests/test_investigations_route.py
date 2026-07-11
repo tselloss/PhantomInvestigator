@@ -43,6 +43,54 @@ def test_list_investigations_omits_deployment_id_when_not_given(monkeypatch):
     assert captured["deployment_id"] is None
 
 
+def test_list_investigations_passes_reviewed_filter(monkeypatch):
+    captured = {}
+
+    def fake_list_recent(owner_user_id, **kwargs):
+        captured.update(owner_user_id=owner_user_id, **kwargs)
+        return []
+
+    monkeypatch.setattr(investigations.store, "list_recent", fake_list_recent)
+    resp = client.get("/api/investigations", params={"reviewed": "true"})
+    assert resp.status_code == 200
+    assert captured["reviewed"] is True
+
+
+def test_list_investigations_omits_reviewed_when_not_given(monkeypatch):
+    captured = {}
+
+    def fake_list_recent(owner_user_id, **kwargs):
+        captured.update(owner_user_id=owner_user_id, **kwargs)
+        return []
+
+    monkeypatch.setattr(investigations.store, "list_recent", fake_list_recent)
+    resp = client.get("/api/investigations")
+    assert resp.status_code == 200
+    assert captured["reviewed"] is None
+
+
+def test_get_investigation_includes_jira_url_for_jira_source(monkeypatch):
+    item = {"id": 5, "source": "jira", "source_ref": "OPS-9", "deployment_id": 42}
+    monkeypatch.setattr(investigations.store, "get_by_id", lambda investigation_id, owner_user_id: dict(item))
+    monkeypatch.setattr(
+        investigations.jira, "issue_url",
+        lambda key, user_id, deployment_id=None: f"https://example.atlassian.net/browse/{key}",
+    )
+
+    resp = client.get("/api/investigations/5")
+    assert resp.status_code == 200
+    assert resp.json()["jira_url"] == "https://example.atlassian.net/browse/OPS-9"
+
+
+def test_get_investigation_omits_jira_url_for_non_jira_source(monkeypatch):
+    item = {"id": 6, "source": "github", "source_ref": "123", "deployment_id": None}
+    monkeypatch.setattr(investigations.store, "get_by_id", lambda investigation_id, owner_user_id: dict(item))
+
+    resp = client.get("/api/investigations/6")
+    assert resp.status_code == 200
+    assert "jira_url" not in resp.json()
+
+
 def test_stats_passes_deployment_id_and_days(monkeypatch):
     captured = {}
 

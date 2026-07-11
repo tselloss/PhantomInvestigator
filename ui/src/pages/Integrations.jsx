@@ -1,7 +1,10 @@
 import { useEffect, useState } from "react";
 import Icon from "../components/Icon";
+import { integrationLabel, integrationRole } from "../lib/integrations";
+import { useToast } from "../context/ToastContext";
 
 export default function Integrations() {
+  const toast = useToast();
   const [integrations, setIntegrations] = useState([]);
   const [fieldSchema, setFieldSchema] = useState({});
   const [testing, setTesting] = useState(null);
@@ -21,16 +24,21 @@ export default function Integrations() {
   const [aiSaveError, setAiSaveError] = useState(null);
 
   async function load() {
-    const [intRes, fieldsRes, aiRes, aiFieldsRes] = await Promise.all([
-      fetch("/api/settings/integrations"),
-      fetch("/api/settings/integrations/fields"),
-      fetch("/api/settings/ai"),
-      fetch("/api/settings/ai/fields"),
-    ]);
-    setIntegrations(await intRes.json());
-    setFieldSchema(await fieldsRes.json());
-    setAiStatus(await aiRes.json());
-    setAiFields(await aiFieldsRes.json());
+    try {
+      const [intRes, fieldsRes, aiRes, aiFieldsRes] = await Promise.all([
+        fetch("/api/settings/integrations"),
+        fetch("/api/settings/integrations/fields"),
+        fetch("/api/settings/ai"),
+        fetch("/api/settings/ai/fields"),
+      ]);
+      if (![intRes, fieldsRes, aiRes, aiFieldsRes].every((r) => r.ok)) throw new Error("load failed");
+      setIntegrations(await intRes.json());
+      setFieldSchema(await fieldsRes.json());
+      setAiStatus(await aiRes.json());
+      setAiFields(await aiFieldsRes.json());
+    } catch {
+      toast.show("Couldn't load integration settings — check your connection and reload.", { type: "err" });
+    }
   }
 
   useEffect(() => {
@@ -41,7 +49,9 @@ export default function Integrations() {
     setAiTesting(true);
     try {
       const res = await fetch("/api/settings/ai/test", { method: "POST" });
-      setAiResult(await res.json());
+      setAiResult(await res.json().catch(() => ({ ok: false, detail: `HTTP ${res.status}` })));
+    } catch {
+      setAiResult({ ok: false, detail: "Connection test failed — check your connection." });
     } finally {
       setAiTesting(false);
     }
@@ -77,16 +87,26 @@ export default function Integrations() {
   }
 
   async function clearAi() {
-    await fetch("/api/settings/ai", { method: "DELETE" });
-    await load();
+    try {
+      const res = await fetch("/api/settings/ai", { method: "DELETE" });
+      if (!res.ok) {
+        toast.show(`Couldn't clear AI provider override (HTTP ${res.status})`, { type: "err" });
+        return;
+      }
+      await load();
+    } catch {
+      toast.show("Couldn't clear AI provider override — check your connection.", { type: "err" });
+    }
   }
 
   async function test(name) {
     setTesting(name);
     try {
       const res = await fetch(`/api/settings/integrations/${name}/test`, { method: "POST" });
-      const data = await res.json();
+      const data = await res.json().catch(() => ({ ok: false, detail: `HTTP ${res.status}` }));
       setResults((r) => ({ ...r, [name]: data }));
+    } catch {
+      setResults((r) => ({ ...r, [name]: { ok: false, detail: "Connection test failed — check your connection." } }));
     } finally {
       setTesting(null);
     }
@@ -127,8 +147,16 @@ export default function Integrations() {
   }
 
   async function clearOverride(name) {
-    await fetch(`/api/settings/integrations/${name}`, { method: "DELETE" });
-    await load();
+    try {
+      const res = await fetch(`/api/settings/integrations/${name}`, { method: "DELETE" });
+      if (!res.ok) {
+        toast.show(`Couldn't clear override (HTTP ${res.status})`, { type: "err" });
+        return;
+      }
+      await load();
+    } catch {
+      toast.show("Couldn't clear override — check your connection.", { type: "err" });
+    }
   }
 
   return (
@@ -222,7 +250,8 @@ export default function Integrations() {
         <div key={i.name}>
           <div className="feed-row">
             <div className="row" style={{ gap: 8 }}>
-              <span className="feed-source">{i.name}</span>
+              <span className="feed-source">{integrationLabel(i.name)}</span>
+              <span className="feed-meta">{integrationRole(i.name)}</span>
               <span className={"badge " + (i.configured ? "ok" : "warn")}>
                 {i.configured ? "configured" : "not configured"}
               </span>

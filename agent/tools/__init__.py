@@ -3,7 +3,7 @@
 Tool descriptions are 50% of your prompt engineering — write them like
 you're onboarding a junior SRE.
 """
-from . import prometheus, loki, deploys, runbooks, jira, github_actions, azure_monitor, aws_cloudwatch, azure_devops, diagnostics, version_registry
+from . import prometheus, loki, deploys, runbooks, jira, github_actions, azure_monitor, aws_cloudwatch, azure_devops, zendesk, diagnostics, version_registry
 from schemas import Postmortem
 
 DEPLOYMENT_ID_PROPERTY = {
@@ -208,6 +208,24 @@ TOOL_SCHEMAS = [
         },
     },
     {
+        "name": "search_support_tickets",
+        "description": (
+            "Search customer support tickets (Zendesk) for reports matching a query. "
+            "Shows real customer-facing impact and timing -- a signal engineering tools "
+            "alone don't have. Use alongside Jira/GitHub/metrics, not instead of them: "
+            "correlate ticket volume/timing with a deploy or metric spike rather than "
+            "treating ticket text as root-cause evidence on its own."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "query": {"type": "string", "description": "Free-text search terms, e.g. 'checkout error'"},
+                "deployment_id": DEPLOYMENT_ID_PROPERTY,
+            },
+            "required": ["query"],
+        },
+    },
+    {
         "name": "query_aws_metrics",
         "description": "Fetch CloudWatch metric statistics (avg/max over the last hour) for a namespace + metric name.",
         "input_schema": {
@@ -328,6 +346,7 @@ def execute_tool(name: str, args: dict, owner_user_id: int) -> str:
             case "get_deploy_diff":   return github_actions.get_deploy_diff(args["repo"], args["base"], args["head"], owner_user_id, deployment_id=args.get("deployment_id"))
             case "query_azure_logs":  return azure_monitor.query_logs(args["kql"], owner_user_id, deployment_id=args.get("deployment_id"))
             case "query_azure_metrics": return azure_monitor.query_metrics(args["resource_id"], args["metric_namespace"], args["metric_names"], owner_user_id, deployment_id=args.get("deployment_id"))
+            case "search_support_tickets": return zendesk.search_tickets(args["query"], owner_user_id, deployment_id=args.get("deployment_id"))
             case "query_aws_logs":    return aws_cloudwatch.query_logs(args["log_group"], args["filter_pattern"], owner_user_id, args.get("minutes", 15), deployment_id=args.get("deployment_id"))
             case "query_aws_metrics": return aws_cloudwatch.query_metrics(args["namespace"], args["metric_name"], owner_user_id, args.get("dimensions_json", "[]"), deployment_id=args.get("deployment_id"))
             case "search_diagnostic_bundle": return diagnostics.search_diagnostic_bundle(args["deployment_id"], args["query"], owner_user_id)

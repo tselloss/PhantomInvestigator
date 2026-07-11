@@ -69,8 +69,10 @@ export default function Threads({
     );
     intersectionObserver.observe(container);
 
+    const reduceMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+
     function draw(t) {
-      animationFrameId.current = requestAnimationFrame(draw);
+      if (!reduceMotion) animationFrameId.current = requestAnimationFrame(draw);
       if (!isVisible || document.hidden || width === 0) return;
 
       const { color, amplitude, distance, enableMouseInteraction } = propsRef.current;

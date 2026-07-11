@@ -1,12 +1,15 @@
 import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import Icon from "../components/Icon";
+import { integrationLabel, integrationRole } from "../lib/integrations";
+import { useToast } from "../context/ToastContext";
 
 function slugify(name) {
   return name.trim().toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/(^-|-$)/g, "");
 }
 
 export default function Clients() {
+  const toast = useToast();
   const [clients, setClients] = useState([]);
   const [error, setError] = useState(null);
   const [name, setName] = useState("");
@@ -68,13 +71,20 @@ export default function Clients() {
     if (!name.trim()) return;
     setCreating(true);
     try {
-      await fetch("/api/clients", {
+      const res = await fetch("/api/clients", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ name, slug: slugify(name) }),
       });
+      if (!res.ok) {
+        const detail = await res.json().catch(() => ({}));
+        toast.show(detail.detail || `Couldn't add client (HTTP ${res.status})`, { type: "err" });
+        return;
+      }
       setName("");
       await loadClients();
+    } catch {
+      toast.show("Couldn't add client — check your connection.", { type: "err" });
     } finally {
       setCreating(false);
     }
@@ -90,31 +100,46 @@ export default function Clients() {
       return;
     }
     setExpandedId(clientId);
-    const [detailRes, integrationsRes] = await Promise.all([
-      fetch(`/api/clients/${clientId}`),
-      fetch(`/api/clients/${clientId}/integrations`),
-    ]);
-    setDetail(await detailRes.json());
-    setClientIntegrations(await integrationsRes.json());
+    try {
+      const [detailRes, integrationsRes] = await Promise.all([
+        fetch(`/api/clients/${clientId}`),
+        fetch(`/api/clients/${clientId}/integrations`),
+      ]);
+      if (!detailRes.ok || !integrationsRes.ok) throw new Error("load failed");
+      setDetail(await detailRes.json());
+      setClientIntegrations(await integrationsRes.json());
+    } catch {
+      toast.show("Couldn't load client details.", { type: "err" });
+      setExpandedId(null);
+    }
   }
 
   async function createDeployment(clientId) {
     if (!deployLabel.trim()) return;
-    await fetch(`/api/clients/${clientId}/deployments`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        label: deployLabel,
-        environment: deployEnv,
-        jira_project_key: deployJira || null,
-        github_repo: deployRepo || null,
-      }),
-    });
-    setDeployLabel("");
-    setDeployJira("");
-    setDeployRepo("");
-    const res = await fetch(`/api/clients/${clientId}`);
-    setDetail(await res.json());
+    try {
+      const res = await fetch(`/api/clients/${clientId}/deployments`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          label: deployLabel,
+          environment: deployEnv,
+          jira_project_key: deployJira || null,
+          github_repo: deployRepo || null,
+        }),
+      });
+      if (!res.ok) {
+        const detail = await res.json().catch(() => ({}));
+        toast.show(detail.detail || `Couldn't add deployment (HTTP ${res.status})`, { type: "err" });
+        return;
+      }
+      setDeployLabel("");
+      setDeployJira("");
+      setDeployRepo("");
+      const detailRes = await fetch(`/api/clients/${clientId}`);
+      if (detailRes.ok) setDetail(await detailRes.json());
+    } catch {
+      toast.show("Couldn't add deployment — check your connection.", { type: "err" });
+    }
   }
 
   function startEditClient(c) {
@@ -126,28 +151,43 @@ export default function Clients() {
   async function saveClient(clientId) {
     setSavingClient(true);
     try {
-      await fetch(`/api/clients/${clientId}`, {
+      const res = await fetch(`/api/clients/${clientId}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ name: editClientName, notes: editClientNotes || null }),
       });
+      if (!res.ok) {
+        const detail = await res.json().catch(() => ({}));
+        toast.show(detail.detail || `Couldn't save client (HTTP ${res.status})`, { type: "err" });
+        return;
+      }
       setEditingClientId(null);
       await loadClients();
-      const res = await fetch(`/api/clients/${clientId}`);
-      setDetail(await res.json());
+      const detailRes = await fetch(`/api/clients/${clientId}`);
+      if (detailRes.ok) setDetail(await detailRes.json());
+    } catch {
+      toast.show("Couldn't save client — check your connection.", { type: "err" });
     } finally {
       setSavingClient(false);
     }
   }
 
   async function archiveClient(clientId) {
-    await fetch(`/api/clients/${clientId}`, { method: "DELETE" });
-    setConfirmArchiveClientId(null);
-    if (expandedId === clientId) {
-      setExpandedId(null);
-      setDetail(null);
+    try {
+      const res = await fetch(`/api/clients/${clientId}`, { method: "DELETE" });
+      if (!res.ok) {
+        toast.show(`Couldn't archive client (HTTP ${res.status})`, { type: "err" });
+        return;
+      }
+      setConfirmArchiveClientId(null);
+      if (expandedId === clientId) {
+        setExpandedId(null);
+        setDetail(null);
+      }
+      await loadClients();
+    } catch {
+      toast.show("Couldn't archive client — check your connection.", { type: "err" });
     }
-    await loadClients();
   }
 
   function startEditIntegration(name) {
@@ -186,17 +226,30 @@ export default function Clients() {
   }
 
   async function clearIntegration(clientId, name) {
-    await fetch(`/api/clients/${clientId}/integrations/${name}`, { method: "DELETE" });
-    const listRes = await fetch(`/api/clients/${clientId}/integrations`);
-    setClientIntegrations(await listRes.json());
+    try {
+      const res = await fetch(`/api/clients/${clientId}/integrations/${name}`, { method: "DELETE" });
+      if (!res.ok) {
+        toast.show(`Couldn't clear override (HTTP ${res.status})`, { type: "err" });
+        return;
+      }
+      const listRes = await fetch(`/api/clients/${clientId}/integrations`);
+      if (listRes.ok) setClientIntegrations(await listRes.json());
+    } catch {
+      toast.show("Couldn't clear override — check your connection.", { type: "err" });
+    }
   }
 
   async function testIntegration(clientId, name) {
     setTestingIntegration(name);
     try {
       const res = await fetch(`/api/clients/${clientId}/integrations/${name}/test`, { method: "POST" });
-      const data = await res.json();
+      const data = await res.json().catch(() => ({ ok: false, detail: `HTTP ${res.status}` }));
       setIntegrationTestResults((r) => ({ ...r, [name]: data }));
+    } catch {
+      setIntegrationTestResults((r) => ({
+        ...r,
+        [name]: { ok: false, detail: "Connection test failed — check your connection." },
+      }));
     } finally {
       setTestingIntegration(null);
     }
@@ -213,7 +266,7 @@ export default function Clients() {
   async function saveDeployment(clientId, deploymentId) {
     setSavingDeployment(true);
     try {
-      await fetch(`/api/clients/${clientId}/deployments/${deploymentId}`, {
+      const res = await fetch(`/api/clients/${clientId}/deployments/${deploymentId}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -223,28 +276,43 @@ export default function Clients() {
           github_repo: editDeployRepo || null,
         }),
       });
+      if (!res.ok) {
+        const detail = await res.json().catch(() => ({}));
+        toast.show(detail.detail || `Couldn't save deployment (HTTP ${res.status})`, { type: "err" });
+        return;
+      }
       setEditingDeploymentId(null);
       const [depRes, clientRes] = await Promise.all([
         fetch(`/api/clients/${clientId}/deployments/${deploymentId}`),
         fetch(`/api/clients/${clientId}`),
       ]);
-      setDeploymentDetail(await depRes.json());
-      setDetail(await clientRes.json());
+      if (depRes.ok) setDeploymentDetail(await depRes.json());
+      if (clientRes.ok) setDetail(await clientRes.json());
+    } catch {
+      toast.show("Couldn't save deployment — check your connection.", { type: "err" });
     } finally {
       setSavingDeployment(false);
     }
   }
 
   async function archiveDeployment(clientId, deploymentId) {
-    await fetch(`/api/clients/${clientId}/deployments/${deploymentId}`, { method: "DELETE" });
-    setConfirmArchiveDeploymentId(null);
-    if (expandedDeploymentId === deploymentId) {
-      setExpandedDeploymentId(null);
-      setDeploymentDetail(null);
-      setBundles([]);
+    try {
+      const res = await fetch(`/api/clients/${clientId}/deployments/${deploymentId}`, { method: "DELETE" });
+      if (!res.ok) {
+        toast.show(`Couldn't archive deployment (HTTP ${res.status})`, { type: "err" });
+        return;
+      }
+      setConfirmArchiveDeploymentId(null);
+      if (expandedDeploymentId === deploymentId) {
+        setExpandedDeploymentId(null);
+        setDeploymentDetail(null);
+        setBundles([]);
+      }
+      const detailRes = await fetch(`/api/clients/${clientId}`);
+      if (detailRes.ok) setDetail(await detailRes.json());
+    } catch {
+      toast.show("Couldn't archive deployment — check your connection.", { type: "err" });
     }
-    const res = await fetch(`/api/clients/${clientId}`);
-    setDetail(await res.json());
   }
 
   async function toggleDeployment(clientId, deploymentId) {
@@ -255,12 +323,18 @@ export default function Clients() {
       return;
     }
     setExpandedDeploymentId(deploymentId);
-    const [depRes, bundlesRes] = await Promise.all([
-      fetch(`/api/clients/${clientId}/deployments/${deploymentId}`),
-      fetch(`/api/diagnostics/${deploymentId}`),
-    ]);
-    setDeploymentDetail(await depRes.json());
-    setBundles(await bundlesRes.json());
+    try {
+      const [depRes, bundlesRes] = await Promise.all([
+        fetch(`/api/clients/${clientId}/deployments/${deploymentId}`),
+        fetch(`/api/diagnostics/${deploymentId}`),
+      ]);
+      if (!depRes.ok || !bundlesRes.ok) throw new Error("load failed");
+      setDeploymentDetail(await depRes.json());
+      setBundles(await bundlesRes.json());
+    } catch {
+      toast.show("Couldn't load deployment details.", { type: "err" });
+      setExpandedDeploymentId(null);
+    }
   }
 
   async function uploadBundle(clientId, deploymentId, form) {
@@ -269,14 +343,21 @@ export default function Clients() {
       const data = new FormData(form);
       data.set("deployment_id", deploymentId);
       if (!data.get("filename")) data.set("filename", "bundle");
-      await fetch("/api/diagnostics/upload", { method: "POST", body: data });
+      const res = await fetch("/api/diagnostics/upload", { method: "POST", body: data });
+      if (!res.ok) {
+        const detail = await res.json().catch(() => ({}));
+        toast.show(detail.detail || `Couldn't upload bundle (HTTP ${res.status})`, { type: "err" });
+        return;
+      }
       form.reset();
       const [depRes, bundlesRes] = await Promise.all([
         fetch(`/api/clients/${clientId}/deployments/${deploymentId}`),
         fetch(`/api/diagnostics/${deploymentId}`),
       ]);
-      setDeploymentDetail(await depRes.json());
-      setBundles(await bundlesRes.json());
+      if (depRes.ok) setDeploymentDetail(await depRes.json());
+      if (bundlesRes.ok) setBundles(await bundlesRes.json());
+    } catch {
+      toast.show("Couldn't upload bundle — check your connection.", { type: "err" });
     } finally {
       setUploading(false);
     }
@@ -580,7 +661,8 @@ export default function Clients() {
                 <div key={i.name}>
                   <div className="feed-row">
                     <div className="row" style={{ gap: 8 }}>
-                      <span className="feed-source">{i.name}</span>
+                      <span className="feed-source">{integrationLabel(i.name)}</span>
+                      <span className="feed-meta">{integrationRole(i.name)}</span>
                       <span className={"badge " + (i.configured ? "ok" : "warn")}>
                         {i.configured ? "configured" : "not configured"}
                       </span>

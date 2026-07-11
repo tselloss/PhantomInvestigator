@@ -8,7 +8,7 @@ import os
 
 import psycopg
 
-DATABASE_URL = os.environ.get("DATABASE_URL", "postgresql://postgres:postgres@localhost:5433/demo")
+DATABASE_URL = os.environ.get("DATABASE_URL", "postgresql://postgres:postgres@localhost:5533/demo")
 
 MAX_EXCERPT_CHARS = 20_000  # same truncate-at-insert idiom every tool already uses
 

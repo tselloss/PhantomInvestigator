@@ -1,6 +1,6 @@
 export default function PostmortemView({ pm }) {
   return (
-    <div>
+    <div className="pm-view">
       <p className="pm-title">{pm.title || "Untitled incident"}</p>
       <p className="pm-meta">
         <span className="cat">{pm.fault_category || "unknown"}</span>

@@ -13,7 +13,9 @@ from azure.identity import ClientSecretCredential
 from azure.monitor.query import LogsQueryClient, LogsQueryStatus
 from azure.monitor.querymetrics import MetricsClient
 
+import demo_data
 import integration_credentials
+import users
 
 AZURE_TENANT_ID = os.environ.get("AZURE_TENANT_ID", "")
 AZURE_CLIENT_ID = os.environ.get("AZURE_CLIENT_ID", "")
@@ -49,6 +51,8 @@ def query_logs(kql: str, user_id: int, deployment_id: int | None = None) -> str:
     """Run a KQL query against the configured Log Analytics workspace."""
     cfg = _config(user_id, deployment_id=deployment_id)
     if not (cfg["tenant_id"] and cfg["client_id"] and cfg["client_secret"] and cfg["log_analytics_workspace_id"]):
+        if users.get_demo_mode(user_id):
+            return demo_data.azure_monitor_logs(kql)
         return "ERROR: Azure credentials/workspace not configured"
     try:
         client = LogsQueryClient(_credential(user_id, deployment_id=deployment_id), retry_total=1, retry_backoff_factor=1.0)
@@ -78,6 +82,8 @@ def query_metrics(
     metric_names: comma-separated Azure Monitor metric names, e.g. 'Percentage CPU,Network In'."""
     cfg = _config(user_id, deployment_id=deployment_id)
     if not (cfg["tenant_id"] and cfg["client_id"] and cfg["client_secret"] and cfg["metrics_endpoint"]):
+        if users.get_demo_mode(user_id):
+            return demo_data.azure_monitor_metrics(resource_id, metric_namespace, metric_names)
         return "ERROR: Azure credentials/metrics endpoint not configured"
     try:
         client = MetricsClient(

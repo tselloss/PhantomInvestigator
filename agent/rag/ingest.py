@@ -23,7 +23,7 @@ import httpx
 import psycopg
 from pgvector.psycopg import register_vector
 
-DATABASE_URL = os.environ.get("DATABASE_URL", "postgresql://postgres:postgres@localhost:5433/demo")
+DATABASE_URL = os.environ.get("DATABASE_URL", "postgresql://postgres:postgres@localhost:5533/demo")
 EMBEDDING_API_KEY = os.environ.get("EMBEDDING_API_KEY")
 EMBEDDING_MODEL = os.environ.get("EMBEDDING_MODEL", "voyage-3")
 EMBEDDING_DIM = 1024

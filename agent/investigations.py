@@ -8,7 +8,7 @@ import os
 
 import psycopg
 
-DATABASE_URL = os.environ.get("DATABASE_URL", "postgresql://postgres:postgres@localhost:5433/demo")
+DATABASE_URL = os.environ.get("DATABASE_URL", "postgresql://postgres:postgres@localhost:5533/demo")
 
 # How long a just-triggered investigation counts as a "duplicate" of one
 # already on record -- long enough to absorb webhook retries and accidental
@@ -145,6 +145,7 @@ def list_recent(
     source: str | None = None,
     status: str | None = None,
     deployment_id: int | None = None,
+    reviewed: bool | None = None,
 ) -> list[dict]:
     query = "SELECT {} FROM investigations".format(", ".join(_COLUMNS))
     clauses, params = ["owner_user_id = %s"], [owner_user_id]
@@ -157,6 +158,9 @@ def list_recent(
     if deployment_id is not None:
         clauses.append("deployment_id = %s")
         params.append(deployment_id)
+    if reviewed is not None:
+        clauses.append("reviewed = %s")
+        params.append(reviewed)
     query += " WHERE " + " AND ".join(clauses)
     query += " ORDER BY created_at DESC LIMIT %s OFFSET %s"
     params += [limit, offset]
@@ -239,3 +243,19 @@ def stats(owner_user_id: int, days: int = 7, deployment_id: int | None = None) -
             total_cost += (result.get("usage") or {}).get("cost_usd", 0) or 0
 
     return {"total": len(rows), "by_status": by_status, "total_cost_usd": round(total_cost, 4), "period_days": days}
+
+
+def monthly_cost_usd(owner_user_id: int) -> float:
+    """Sum of result.usage.cost_usd for this owner's investigations since the
+    start of the current calendar month -- the window billing.check_budget()
+    enforces a spend cap against (distinct from stats()'s rolling day-window,
+    which powers the Dashboard's 7-day widget, not budget enforcement)."""
+    query = "SELECT result FROM investigations WHERE owner_user_id = %s AND created_at >= date_trunc('month', now())"
+    with _connect() as conn:
+        rows = conn.execute(query, (owner_user_id,)).fetchall()
+
+    total = 0.0
+    for (result,) in rows:
+        if result:
+            total += (result.get("usage") or {}).get("cost_usd", 0) or 0
+    return round(total, 4)

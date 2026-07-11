@@ -7,11 +7,13 @@ import os
 
 import httpx
 
+import billing
 import integration_credentials
 import providers
-from tools import aws_cloudwatch, azure_devops, azure_monitor, github_actions, jira, loki, prometheus
+import users
+from tools import aws_cloudwatch, azure_devops, azure_monitor, github_actions, jira, loki, prometheus, zendesk
 
-INTEGRATIONS = ["jira", "github", "azure", "aws", "prometheus", "loki", "azure_devops"]
+INTEGRATIONS = ["jira", "github", "azure", "aws", "prometheus", "loki", "azure_devops", "zendesk"]
 
 # The AI provider that powers the investigation loop itself (bring-your-own-
 # key) is deliberately kept out of INTEGRATIONS/EDITABLE_FIELDS above: that
@@ -93,6 +95,11 @@ EDITABLE_FIELDS = {
         {"key": "project", "label": "Project", "secret": False},
         {"key": "pat", "label": "Personal access token", "secret": True},
     ],
+    "zendesk": [
+        {"key": "subdomain", "label": "Subdomain", "secret": False},
+        {"key": "email", "label": "Email", "secret": False},
+        {"key": "api_token", "label": "API token", "secret": True},
+    ],
 }
 
 
@@ -113,6 +120,9 @@ def _configured(user_id: int, name: str) -> bool:
     if name == "azure_devops":
         cfg = azure_devops._config(user_id)
         return bool(cfg["organization"] and cfg["project"] and cfg["pat"])
+    if name == "zendesk":
+        cfg = zendesk._config(user_id)
+        return bool(cfg["subdomain"] and cfg["email"] and cfg["api_token"])
     return False
 
 
@@ -203,6 +213,16 @@ def test_integration(user_id: int, name: str) -> dict:
             resp.raise_for_status()
             who = resp.json().get("authenticatedUser", {}).get("providerDisplayName", "unknown user")
             return {"ok": True, "detail": f"authenticated as {who}"}
+
+        if name == "zendesk":
+            cfg = zendesk._config(user_id)
+            resp = httpx.get(
+                f"{zendesk._base_url(cfg)}/users/me.json",
+                auth=zendesk._auth(cfg),
+                timeout=10.0,
+            )
+            resp.raise_for_status()
+            return {"ok": True, "detail": f"authenticated as {resp.json().get('user', {}).get('name', 'unknown user')}"}
     except Exception as e:
         return {"ok": False, "detail": f"{type(e).__name__}: {e}"}
 
@@ -233,6 +253,9 @@ def _client_configured(client_id: int, user_id: int, name: str) -> bool:
     if name == "azure_devops":
         cfg = azure_devops._config(user_id, client_id=client_id)
         return bool(cfg["organization"] and cfg["project"] and cfg["pat"])
+    if name == "zendesk":
+        cfg = zendesk._config(user_id, client_id=client_id)
+        return bool(cfg["subdomain"] and cfg["email"] and cfg["api_token"])
     return False
 
 
@@ -326,7 +349,42 @@ def test_client_integration(client_id: int, user_id: int, name: str) -> dict:
             resp.raise_for_status()
             who = resp.json().get("authenticatedUser", {}).get("providerDisplayName", "unknown user")
             return {"ok": True, "detail": f"authenticated as {who}"}
+
+        if name == "zendesk":
+            cfg = zendesk._config(user_id, client_id=client_id)
+            resp = httpx.get(
+                f"{zendesk._base_url(cfg)}/users/me.json",
+                auth=zendesk._auth(cfg),
+                timeout=10.0,
+            )
+            resp.raise_for_status()
+            return {"ok": True, "detail": f"authenticated as {resp.json().get('user', {}).get('name', 'unknown user')}"}
     except Exception as e:
         return {"ok": False, "detail": f"{type(e).__name__}: {e}"}
 
     return {"ok": False, "detail": "no test defined"}
+
+
+def get_profile(user_id: int) -> dict:
+    user = users.get_user_by_id(user_id)
+    budget = billing.check_budget(user_id)
+    return {
+        "username": user["username"],
+        "email": user.get("email"),
+        "sign_in_method": "google" if user.get("google_id") else "password",
+        "monthly_limit_usd": budget["limit_usd"],
+        "spent_this_month_usd": budget["spent_usd"],
+        "demo_mode": bool(user.get("demo_mode")),
+    }
+
+
+def set_monthly_limit(user_id: int, limit_usd: float | None) -> dict:
+    if limit_usd is not None and limit_usd < 0:
+        raise ValueError("monthly_limit_usd must be >= 0")
+    users.update_monthly_limit(user_id, limit_usd)
+    return get_profile(user_id)
+
+
+def set_demo_mode(user_id: int, enabled: bool) -> dict:
+    users.update_demo_mode(user_id, enabled)
+    return get_profile(user_id)

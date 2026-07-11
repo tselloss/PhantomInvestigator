@@ -8,7 +8,9 @@ import re
 
 import httpx
 
+import demo_data
 import integration_credentials
+import users
 from ._http import request_with_retry
 
 AZURE_DEVOPS_ORG = os.environ.get("AZURE_DEVOPS_ORG", "")
@@ -53,6 +55,8 @@ def _strip_html(html: str | None) -> str:
 def get_work_item(work_item_id: int, user_id: int, deployment_id: int | None = None) -> str:
     cfg = _config(user_id, deployment_id=deployment_id)
     if not (cfg["organization"] and cfg["project"] and cfg["pat"]):
+        if users.get_demo_mode(user_id):
+            return demo_data.azure_devops_work_item(work_item_id)
         return "ERROR: Azure DevOps organization/project/PAT not configured"
 
     try:
@@ -98,6 +102,8 @@ def get_work_item(work_item_id: int, user_id: int, deployment_id: int | None = N
 def post_comment(work_item_id: int, body: str, user_id: int, deployment_id: int | None = None) -> str:
     cfg = _config(user_id, deployment_id=deployment_id)
     if not (cfg["organization"] and cfg["project"] and cfg["pat"]):
+        if users.get_demo_mode(user_id):
+            return demo_data.azure_devops_post_comment(work_item_id)
         return "ERROR: Azure DevOps organization/project/PAT not configured"
     try:
         request_with_retry(

@@ -53,7 +53,14 @@ async def fault_middleware(request, call_next):
 
 @app.get("/health")
 async def health():
-    return {"ok": True, "active_faults": faults.active_faults()}
+    return {
+        "ok": True,
+        "active_faults": faults.active_faults(),
+        # memory_leak has no effect on status code/latency (see faults.py) --
+        # its only visible signal is this growing forever, even across
+        # "Clear faults", same as a real unbounded cache would.
+        "leaked_cache_mb": len(faults._leaky_cache),
+    }
 
 @app.get("/products")
 async def products():

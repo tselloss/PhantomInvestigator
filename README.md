@@ -60,7 +60,7 @@ The demo-app + Prometheus/Loki/Grafana stack from AIInvestigator stays in place 
 | Evals | Custom harness + LLM-as-judge | Measured accuracy + quality on injected faults, not vibes |
 | Tests | pytest + respx, mocked, run on every push/PR via GitHub Actions | Tool-module request/response handling + webhook auth logic |
 | UI | React (Vite) + react-router | Multi-page operator console — see Operator console below |
-| Auth | Signed session cookie (PyJWT), real per-user accounts (argon2-hashed passwords) | Self-service register/login; every user's data is fully isolated |
+| Auth | Signed session cookie (PyJWT), real per-user accounts (argon2-hashed passwords), optional "Continue with Google" | Self-service register/login; every user's data is fully isolated |
 | Packaging | Docker Compose | One command up, zero manual clicking |
 
 ## Operator console
@@ -85,16 +85,21 @@ All JSON API routes live under `/api/*` and are gated by session auth (checked b
 ## Quickstart
 
 ```bash
-cp .env.example .env
-# Fill in: EMBEDDING_API_KEY (Voyage AI), Langfuse secrets, SESSION_SECRET
-# (generate with `openssl rand -hex 32`), and whichever of
-# JIRA_*/GITHUB_*/AZURE_*/AWS_* you actually have accounts for. Your own AI
-# provider key (Claude/OpenAI/compatible) is added from the running app's
-# Settings page after you register, not from .env.
+make setup       # bootstraps .env: generates every secret it can, asks for the rest
+                 # (Anthropic key, Voyage AI key -- both skippable, fill in later)
 
 make up          # docker compose up -d --build
 make investigate  # or open the UI, register an account, and trigger manually
 ```
+
+`make setup` handles SESSION_SECRET, CREDENTIALS_ENCRYPTION_KEY, and all the
+Langfuse secrets/keys for you. Jira/GitHub/Azure/AWS are left blank -- wire up
+whichever you actually have accounts for, either in `.env` or later from the
+Integrations page. Your own AI provider key (Claude/OpenAI/compatible) can
+also be added from the running app's Settings page after you register,
+instead of `.env`. `GOOGLE_CLIENT_ID`/`GOOGLE_CLIENT_SECRET`/`GOOGLE_REDIRECT_URI`
+are also left blank -- set them to enable "Continue with Google" on the
+login/register pages, otherwise username/password stays the only option.
 
 Runbooks are seeded per-account automatically on registration (see
 `make ingest` in the Makefile if you need to re-embed after adding new

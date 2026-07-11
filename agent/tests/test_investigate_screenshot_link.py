@@ -17,6 +17,11 @@ def no_duplicate(monkeypatch):
     monkeypatch.setattr(main.investigations, "find_recent_duplicate", lambda *a, **kw: None)
 
 
+@pytest.fixture(autouse=True)
+def budget_ok(monkeypatch):
+    monkeypatch.setattr(main.billing, "check_budget", lambda user_id: {"allowed": True, "spent_usd": 0.0, "limit_usd": None})
+
+
 client = TestClient(main.app)
 
 
@@ -101,6 +106,22 @@ def test_investigate_returns_deduped_response_without_running_agent(monkeypatch)
     mock_run.assert_not_called()
 
 
+def test_investigate_stream_includes_investigation_id_on_agent_error(monkeypatch):
+    monkeypatch.setattr(main.investigations, "start", lambda *a, **kw: 70)
+    monkeypatch.setattr(main.investigations, "finish", lambda *a, **kw: None)
+
+    def failing_stream(alert_text, owner_user_id, deployment_id=None):
+        raise RuntimeError("boom")
+        yield  # pragma: no cover - makes this a generator function
+
+    with patch.object(loop, "run_agent_stream", side_effect=failing_stream):
+        resp = client.get("/api/investigate/stream", params={"alert": "checkout down"})
+
+    assert resp.status_code == 200
+    assert '"investigation_id": 70' in resp.text
+    assert "ERROR: boom" in resp.text
+
+
 def test_investigate_stream_returns_deduped_final_event_without_running_agent(monkeypatch):
     existing = {"id": 41, "result": {"postmortem": None}}
     monkeypatch.setattr(main.investigations, "find_recent_duplicate", lambda *a, **kw: existing)
@@ -111,4 +132,27 @@ def test_investigate_stream_returns_deduped_final_event_without_running_agent(mo
 
     assert resp.status_code == 200
     assert '"deduped": true' in resp.text
+    mock_stream.assert_not_called()
+
+
+def test_investigate_returns_402_when_budget_exceeded(monkeypatch):
+    monkeypatch.setattr(main.billing, "check_budget", lambda user_id: {"allowed": False, "spent_usd": 10.0, "limit_usd": 10.0})
+    monkeypatch.setattr(main.investigations, "start", lambda *a, **kw: (_ for _ in ()).throw(AssertionError("should not start a new investigation")))
+
+    with patch.object(loop, "run_agent") as mock_run:
+        resp = client.post("/api/investigate", json={"alert": "checkout down"})
+
+    assert resp.status_code == 402
+    mock_run.assert_not_called()
+
+
+def test_investigate_stream_returns_budget_exceeded_final_event(monkeypatch):
+    monkeypatch.setattr(main.billing, "check_budget", lambda user_id: {"allowed": False, "spent_usd": 10.0, "limit_usd": 10.0})
+    monkeypatch.setattr(main.investigations, "start", lambda *a, **kw: (_ for _ in ()).throw(AssertionError("should not start a new investigation")))
+
+    with patch.object(loop, "run_agent_stream") as mock_stream:
+        resp = client.get("/api/investigate/stream", params={"alert": "checkout down"})
+
+    assert resp.status_code == 200
+    assert '"budget_exceeded": true' in resp.text
     mock_stream.assert_not_called()

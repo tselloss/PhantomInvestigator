@@ -1,12 +1,16 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import Icon from "../components/Icon";
 import CircularText from "../components/CircularText";
 import PostmortemView from "../components/PostmortemView";
 import { composeAlertText } from "../lib/composeAlertText";
+import { truncate } from "../lib/format";
+import { useToast } from "../context/ToastContext";
 
 export default function Investigate() {
+  const toast = useToast();
   const [aiConfigured, setAiConfigured] = useState(true);
+  const [budget, setBudget] = useState(null);
   const [tryingTo, setTryingTo] = useState("");
   const [instead, setInstead] = useState("");
   const [page, setPage] = useState("");
@@ -15,10 +19,21 @@ export default function Investigate() {
   const [uploadingScreenshot, setUploadingScreenshot] = useState(false);
   const [screenshotNotice, setScreenshotNotice] = useState(null);
   const [running, setRunning] = useState(false);
+  const [streaming, setStreaming] = useState(false);
+  const [elapsedSec, setElapsedSec] = useState(0);
   const [log, setLog] = useState([]);
   const [final, setFinal] = useState(null);
   const [deployments, setDeployments] = useState([]);
   const [deploymentId, setDeploymentId] = useState("");
+  const esRef = useRef(null);
+  const timerRef = useRef(null);
+  const logRef = useRef(null);
+  const fileInputRef = useRef(null);
+  const stepCount = log.filter((l) => l.kind === "step").length;
+
+  useEffect(() => {
+    if (logRef.current) logRef.current.scrollTop = logRef.current.scrollHeight;
+  }, [log]);
 
   useEffect(() => {
     fetch("/api/clients/deployments")
@@ -29,12 +44,35 @@ export default function Investigate() {
       .then((r) => r.json())
       .then((data) => setAiConfigured(data.configured))
       .catch(() => {});
+    fetch("/api/settings/profile")
+      .then((r) => r.json())
+      .then(setBudget)
+      .catch(() => {});
+    // Don't leave a live stream/timer running past unmount (e.g. operator navigates away mid-run).
+    return () => {
+      clearInterval(timerRef.current);
+      esRef.current?.close();
+    };
   }, []);
+
+  function stopStreaming() {
+    clearInterval(timerRef.current);
+    esRef.current?.close();
+    esRef.current = null;
+    setStreaming(false);
+  }
+
+  function cancel() {
+    stopStreaming();
+    setRunning(false);
+    toast.show("Investigation cancelled.", { type: "warn" });
+  }
 
   async function start() {
     setRunning(true);
     setLog([]);
     setFinal(null);
+    setElapsedSec(0);
     setScreenshotNotice(null);
 
     let screenshotDescription = null;
@@ -77,15 +115,18 @@ export default function Investigate() {
     if (deploymentId) params.set("deployment_id", deploymentId);
     if (screenshotId) params.set("screenshot_id", screenshotId);
     const es = new EventSource(`/api/investigate/stream?${params}`);
+    esRef.current = es;
+    setStreaming(true);
+    timerRef.current = setInterval(() => setElapsedSec((s) => s + 1), 1000);
 
     es.onmessage = (e) => {
       const event = JSON.parse(e.data);
       switch (event.type) {
         case "step_start":
-          setLog((l) => [...l, { kind: "step", text: `Step ${event.step}` }]);
+          setLog((l) => [...l, { kind: "step", step: event.step }]);
           break;
         case "tool_call":
-          setLog((l) => [...l, { kind: "call", text: `→ ${event.name}(${JSON.stringify(event.input)})` }]);
+          setLog((l) => [...l, { kind: "call", name: event.name, input: event.input }]);
           break;
         case "tool_result": {
           const text = event.result.length > 200 ? event.result.slice(0, 200) + "…" : event.result;
@@ -93,7 +134,7 @@ export default function Investigate() {
           break;
         }
         case "final":
-          es.close();
+          stopStreaming();
           setFinal(event.data);
           setRunning(false);
           break;
@@ -101,13 +142,15 @@ export default function Investigate() {
     };
 
     es.onerror = () => {
-      es.close();
+      stopStreaming();
       setRunning(false);
       setFinal((f) => f ?? { result: "Stream error or connection closed." });
+      toast.show("The investigation stream disconnected unexpectedly.", { type: "err" });
     };
   }
 
   const busy = running || uploadingScreenshot;
+  const budgetExceeded = budget?.monthly_limit_usd != null && budget.spent_this_month_usd >= budget.monthly_limit_usd;
 
   return (
     <section>
@@ -126,79 +169,125 @@ export default function Investigate() {
         </div>
       )}
 
-      <div className="row" style={{ marginTop: 14 }}>
-        <div className="field">
-          <label>What were they trying to do?</label>
-          <input
-            type="text"
-            value={tryingTo}
-            onChange={(e) => setTryingTo(e.target.value)}
-            placeholder="Optional"
-            disabled={busy}
-          />
+      {budgetExceeded && (
+        <div className="alert warn">
+          <Icon name="dollar" size={15} />
+          <span>
+            Monthly AI spend cap of ${budget.monthly_limit_usd.toFixed(2)} reached (${budget.spent_this_month_usd.toFixed(2)}{" "}
+            spent this month) — raise or remove it in <Link to="/settings/profile">Settings → Profile</Link> to keep
+            investigating.
+          </span>
         </div>
-        <div className="field">
-          <label>What happened instead?</label>
-          <input
-            type="text"
-            value={instead}
-            onChange={(e) => setInstead(e.target.value)}
-            placeholder="Optional"
-            disabled={busy}
-          />
-        </div>
-        <div className="field">
-          <label>Page or feature</label>
-          <input
-            type="text"
-            value={page}
-            onChange={(e) => setPage(e.target.value)}
-            placeholder="Optional"
-            disabled={busy}
-          />
-        </div>
-      </div>
+      )}
 
-      <div className="row" style={{ marginTop: 14 }}>
-        <div className="field grow">
-          <label>Alert text or ticket reference</label>
-          <input
-            type="text"
-            value={notes}
-            onChange={(e) => setNotes(e.target.value)}
-            placeholder="Alert text, or a Jira ticket key/summary"
-            disabled={busy}
-          />
+      <form
+        onSubmit={(e) => {
+          e.preventDefault();
+          if (!busy && aiConfigured && !budgetExceeded) start();
+        }}
+      >
+        <div className="row" style={{ marginTop: 14 }}>
+          <div className="field">
+            <label>What were they trying to do?</label>
+            <input
+              type="text"
+              value={tryingTo}
+              onChange={(e) => setTryingTo(e.target.value)}
+              placeholder="Optional"
+              disabled={busy}
+            />
+          </div>
+          <div className="field">
+            <label>What happened instead?</label>
+            <input
+              type="text"
+              value={instead}
+              onChange={(e) => setInstead(e.target.value)}
+              placeholder="Optional"
+              disabled={busy}
+            />
+          </div>
+          <div className="field">
+            <label>Page or feature</label>
+            <input
+              type="text"
+              value={page}
+              onChange={(e) => setPage(e.target.value)}
+              placeholder="Optional"
+              disabled={busy}
+            />
+          </div>
         </div>
-        <div className="field">
-          <label>Screenshot</label>
-          <input
-            type="file"
-            accept="image/*"
-            disabled={busy}
-            onChange={(e) => setScreenshotFile(e.target.files[0] || null)}
-          />
-        </div>
-        <div className="field">
-          <label>Deployment</label>
-          <select value={deploymentId} onChange={(e) => setDeploymentId(e.target.value)} disabled={busy}>
-            <option value="">No deployment (demo/manual)</option>
-            {deployments.map((d) => (
-              <option key={d.id} value={d.id}>
-                {d.client_name} / {d.label}
-              </option>
-            ))}
-          </select>
-        </div>
-      </div>
 
-      <div className="row" style={{ marginTop: 16 }}>
-        <button className="primary" disabled={busy || !aiConfigured} onClick={start}>
-          <Icon name="search" size={14} />
-          Investigate
-        </button>
-        {uploadingScreenshot && <span className="spinner">Analyzing screenshot…</span>}
-      </div>
+        <div className="row" style={{ marginTop: 14 }}>
+          <div className="field grow">
+            <label>Alert text or ticket reference</label>
+            <input
+              type="text"
+              value={notes}
+              onChange={(e) => setNotes(e.target.value)}
+              placeholder="Alert text, or a Jira ticket key/summary"
+              disabled={busy}
+            />
+          </div>
+          <div className="field">
+            <label>Screenshot</label>
+            <input
+              type="file"
+              accept="image/*"
+              ref={fileInputRef}
+              style={{ display: "none" }}
+              onChange={(e) => setScreenshotFile(e.target.files[0] || null)}
+            />
+            <div className="row" style={{ gap: 8, flexWrap: "nowrap" }}>
+              <button
+                type="button"
+                style={{ flex: 1, minWidth: 0 }}
+                disabled={busy}
+                onClick={() => fileInputRef.current?.click()}
+              >
+                <Icon name="image" size={14} />
+                <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                  {screenshotFile ? truncate(screenshotFile.name, 24) : "Attach screenshot"}
+                </span>
+              </button>
+              {screenshotFile && (
+                <button
+                  type="button"
+                  className="ghost"
+                  disabled={busy}
+                  title="Remove screenshot"
+                  onClick={() => {
+                    setScreenshotFile(null);
+                    if (fileInputRef.current) fileInputRef.current.value = "";
+                  }}
+                >
+                  <Icon name="x" size={14} />
+                </button>
+              )}
+            </div>
+          </div>
+          <div className="field">
+            <label>Deployment</label>
+            <select value={deploymentId} onChange={(e) => setDeploymentId(e.target.value)} disabled={busy}>
+              <option value="">No deployment (demo/manual)</option>
+              {deployments.map((d) => (
+                <option key={d.id} value={d.id}>
+                  {d.client_name} / {d.label}
+                </option>
+              ))}
+            </select>
+          </div>
+        </div>
+
+        <div className="row" style={{ marginTop: 16 }}>
+          <button className="primary" type="submit" disabled={busy || !aiConfigured || budgetExceeded}>
+            <Icon name="search" size={14} />
+            Investigate
+          </button>
+          {uploadingScreenshot && <span className="spinner">Analyzing screenshot…</span>}
+        </div>
+      </form>
 
       {screenshotNotice && (
         <div className="alert warn">
@@ -208,6 +297,19 @@ export default function Investigate() {
       )}
 
       <div style={{ marginTop: 16 }}>
+        {streaming && (
+          <div className="row" style={{ justifyContent: "space-between", marginBottom: 10 }}>
+            <span className="feed-meta">
+              {stepCount > 0 ? `Step ${stepCount} · ` : "Starting… · "}
+              {elapsedSec}s elapsed
+            </span>
+            <button type="button" className="ghost" onClick={cancel}>
+              <Icon name="x" size={13} />
+              Cancel
+            </button>
+          </div>
+        )}
+
         {running && log.length === 0 && (
           <div className="empty-state" style={{ border: "none" }}>
             <CircularText text="INVESTIGATING • GATHERING EVIDENCE • " spinDuration={9} onHover="pause">
@@ -218,12 +320,30 @@ export default function Investigate() {
         )}
 
         {log.length > 0 && (
-          <div className="stream-log">
-            {log.map((line, i) => (
-              <div key={i} className={line.kind}>
-                {line.text}
-              </div>
-            ))}
+          <div className="stream-log" ref={logRef}>
+            {log.map((line, i) => {
+              if (line.kind === "step") {
+                return (
+                  <div key={i} className="step">
+                    Step {line.step}
+                  </div>
+                );
+              }
+              if (line.kind === "call") {
+                return (
+                  <div key={i} className="call">
+                    {line.name}({JSON.stringify(line.input)})
+                  </div>
+                );
+              }
+              const preview = truncate(line.text.replace(/\s+/g, " ").trim(), 70);
+              return (
+                <details key={i} className="out">
+                  <summary>{preview || "(empty result)"}</summary>
+                  <div className="out-body">{line.text}</div>
+                </details>
+              );
+            })}
           </div>
         )}
 
@@ -242,6 +362,17 @@ export default function Investigate() {
               <Link to={`/investigations/${final.investigation_id}`}>that result</Link> instead of spending AI tokens
               on a repeat run.
             </span>
+          </div>
+        )}
+
+        {final && !final.deduped && final.investigation_id && (
+          <div className="row" style={{ justifyContent: "flex-end", marginBottom: 10 }}>
+            <Link to={`/investigations/${final.investigation_id}`}>
+              <button type="button" className="ghost">
+                View in history
+                <Icon name="arrowLeft" size={13} className="flip" />
+              </button>
+            </Link>
           </div>
         )}
 

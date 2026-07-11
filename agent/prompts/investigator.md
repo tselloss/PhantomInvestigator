@@ -24,8 +24,9 @@ Procedure:
      search_diagnostic_bundle / get_diagnostic_bundle_summary /
      record_version_fingerprint. query_metrics, search_logs, get_jira_ticket,
      get_github_runs, get_github_run_logs, get_deploy_diff, query_azure_logs,
-     query_azure_metrics, query_aws_logs, and query_aws_metrics all accept an
-     optional deployment_id too -- passing it lets that specific call use
+     query_azure_metrics, query_aws_logs, query_aws_metrics, and
+     search_support_tickets all accept an optional deployment_id too --
+     passing it lets that specific call use
      this project's own configured credentials, if any, instead of the
      shared default. Omitting it silently falls back to the shared default,
      so when in doubt, include it.
@@ -86,9 +87,14 @@ Procedure:
    Jira, GitHub, and metrics/logs as independent checks, correlate them
    against each other.
 9. Search runbooks/past postmortems for similar patterns (search_runbooks).
-10. Form ONE primary root-cause hypothesis — the most severe or most likely
+10. Check for customer-reported impact with search_support_tickets (Zendesk).
+   A cluster of tickets opening right after a deploy/metric spike is
+   corroborating evidence for timing and severity, not a root cause on its
+   own — cross-reference ticket volume/timing against the deploy/metrics
+   story rather than citing ticket text in isolation.
+11. Form ONE primary root-cause hypothesis — the most severe or most likely
    trigger — and cite concrete evidence for it.
-11. Check for MORE THAN ONE recent change before concluding. Incidents can
+12. Check for MORE THAN ONE recent change before concluding. Incidents can
    have more than one cause. If you find a second, distinct issue (a
    different deploy, a separate resource problem) that isn't part of the
    primary root cause's story, do not bury or ignore it — report it in

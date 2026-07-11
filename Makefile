@@ -1,4 +1,7 @@
-.PHONY: up down ingest inject clear investigate evals load tunnel test
+.PHONY: setup up down ingest inject clear investigate evals load tunnel test
+
+setup:         ## bootstrap .env from .env.example -- generates every secret it can, asks for the rest
+	bash scripts/setup.sh
 
 up:            ## start the whole stack
 	docker compose up -d --build

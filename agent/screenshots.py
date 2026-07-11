@@ -13,7 +13,7 @@ import os
 
 import psycopg
 
-DATABASE_URL = os.environ.get("DATABASE_URL", "postgresql://postgres:postgres@localhost:5433/demo")
+DATABASE_URL = os.environ.get("DATABASE_URL", "postgresql://postgres:postgres@localhost:5533/demo")
 
 CREATE_TABLE_SQL = """
 CREATE TABLE IF NOT EXISTS investigation_screenshots (

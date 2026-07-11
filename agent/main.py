@@ -3,19 +3,23 @@ below); everything else (the React app, /health, /webhooks/*, /auth/*) is
 public -- the SPA shell has to load before it can even show a login form."""
 import json
 import os
+import time
 
 import httpx
+import structlog
 from fastapi import Depends, FastAPI, File, Form, HTTPException, UploadFile
 from fastapi.responses import HTMLResponse, JSONResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 from starlette.middleware.base import BaseHTTPMiddleware
 
+import billing
 import clients
 import diagnostics
 import investigations
 import screenshots
 import vision
+from rate_limit import RateLimitMiddleware
 from routes.auth import SESSION_COOKIE, get_current_user, verify_session_cookie
 from routes.auth import router as auth_router
 from routes.checkin import router as checkin_router
@@ -27,6 +31,8 @@ from routes.investigations import router as investigations_router
 from routes.runbooks import router as runbooks_router
 from routes.settings import router as settings_router
 from routes.webhooks import router as webhooks_router
+
+log = structlog.get_logger(__name__)
 
 DEMO_APP_URL = os.environ.get("DEMO_APP_URL", "http://localhost:8001")
 
@@ -48,6 +54,28 @@ class AuthMiddleware(BaseHTTPMiddleware):
 
 
 app = FastAPI(title="phantom-investigator")
+
+
+@app.middleware("http")
+async def log_requests(request, call_next):
+    """Replaces uvicorn's default access log (disabled via --no-access-log
+    in the Dockerfile CMD), which would otherwise print the full request
+    line -- including query strings like the Jira webhook's ?secret=... --
+    to container logs. Deliberately logs request.url.path only, never the
+    query string or full URL."""
+    start = time.monotonic()
+    response = await call_next(request)
+    log.info(
+        "http.request",
+        method=request.method,
+        path=request.url.path,
+        status_code=response.status_code,
+        duration_ms=round((time.monotonic() - start) * 1000, 1),
+    )
+    return response
+
+
+app.add_middleware(RateLimitMiddleware)
 app.add_middleware(AuthMiddleware)
 
 app.include_router(webhooks_router)
@@ -132,6 +160,14 @@ async def investigate(req: InvestigateRequest, user: dict = Depends(get_current_
     if duplicate is not None:
         return {**(duplicate["result"] or {}), "investigation_id": duplicate["id"], "deduped": True}
 
+    budget = billing.check_budget(user_id)
+    if not budget["allowed"]:
+        raise HTTPException(
+            402,
+            f"Monthly AI spend cap of ${budget['limit_usd']:.2f} reached "
+            f"(${budget['spent_usd']:.2f} spent this month). Raise it in Settings → Profile.",
+        )
+
     investigation_id = investigations.start("manual", None, alert_text, user_id, deployment_id=req.deployment_id)
     if req.screenshot_id is not None:
         screenshots.link_to_investigation(req.screenshot_id, investigation_id)
@@ -169,6 +205,17 @@ async def investigate_stream(
             yield f"data: {json.dumps({'type': 'final', 'data': data})}\n\n"
             return
 
+        budget = billing.check_budget(user_id)
+        if not budget["allowed"]:
+            data = {
+                "result": f"Stopped: monthly AI spend cap of ${budget['limit_usd']:.2f} reached "
+                f"(${budget['spent_usd']:.2f} spent this month).",
+                "partial": True,
+                "budget_exceeded": True,
+            }
+            yield f"data: {json.dumps({'type': 'final', 'data': data})}\n\n"
+            return
+
         investigation_id = investigations.start("manual", None, alert_text, user_id, deployment_id=deployment_id)
         if screenshot_id is not None:
             screenshots.link_to_investigation(screenshot_id, investigation_id)
@@ -181,7 +228,8 @@ async def investigate_stream(
                 yield f"data: {json.dumps(event)}\n\n"
         except Exception as e:
             investigations.finish(investigation_id, "error", {"error": f"{type(e).__name__}: {e}"})
-            yield f"data: {json.dumps({'type': 'final', 'data': {'result': f'ERROR: {e}', 'partial': True}})}\n\n"
+            error_data = {"result": f"ERROR: {e}", "partial": True, "investigation_id": investigation_id}
+            yield f"data: {json.dumps({'type': 'final', 'data': error_data})}\n\n"
             return
         investigations.finish(investigation_id, "done" if (result or {}).get("postmortem") else "partial", result or {})
 
@@ -213,6 +261,24 @@ async def demo_inject(name: str):
 async def demo_clear():
     resp = httpx.delete(f"{DEMO_APP_URL}/faults", timeout=10.0)
     return resp.json()
+
+
+@app.post("/api/demo/checkout-test")
+async def demo_checkout_test(count: int = 5):
+    """Fires a few real requests at demo-app's /checkout and reports
+    status/latency per request -- so injecting a fault has something visible
+    to point at (a slow/erroring request feed) instead of just trusting the
+    button worked."""
+    count = max(1, min(count, 20))
+    results = []
+    for _ in range(count):
+        start = time.monotonic()
+        try:
+            resp = httpx.post(f"{DEMO_APP_URL}/checkout", timeout=10.0)
+            results.append({"status_code": resp.status_code, "latency_ms": round((time.monotonic() - start) * 1000)})
+        except httpx.HTTPError as e:
+            results.append({"status_code": None, "latency_ms": round((time.monotonic() - start) * 1000), "error": str(e)})
+    return {"results": results}
 
 
 # ---- React app (built into static/ui by the Docker image) ----

@@ -10,7 +10,7 @@ from pgvector.psycopg import register_vector
 
 from rag.ingest import embed
 
-DATABASE_URL = os.environ.get("DATABASE_URL", "postgresql://postgres:postgres@localhost:5433/demo")
+DATABASE_URL = os.environ.get("DATABASE_URL", "postgresql://postgres:postgres@localhost:5533/demo")
 
 RRF_K = 60  # standard RRF constant — dampens the impact of any single rank-1 hit
 TOP_K = 5

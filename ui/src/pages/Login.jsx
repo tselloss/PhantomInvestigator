@@ -1,13 +1,16 @@
 import { useState } from "react";
-import { Link, Navigate, useLocation } from "react-router-dom";
+import { Link, Navigate, useLocation, useSearchParams } from "react-router-dom";
 import { useAuth } from "../context/AuthContext";
+import GoogleSignInButton from "../components/GoogleSignInButton";
 
 export default function Login() {
   const { user, error, login } = useAuth();
   const location = useLocation();
+  const [searchParams] = useSearchParams();
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [submitting, setSubmitting] = useState(false);
+  const googleError = searchParams.get("error") === "google_failed" ? "Google sign-in failed — try again." : null;
 
   if (user) {
     const dest = location.state?.from?.pathname || "/dashboard";
@@ -27,7 +30,9 @@ export default function Login() {
         <span className="brand-mark hero-mark" style={{ width: 48, height: 48, fontSize: 24, margin: "0 auto 14px" }}>
           👻
         </span>
-        <h2 style={{ margin: "0 0 4px", fontSize: 19, fontWeight: 700 }}>Phantom Investigator</h2>
+        <h2 className="brand-shine" style={{ margin: "0 0 4px", fontSize: 19, fontWeight: 700 }}>
+          Phantom Investigator
+        </h2>
         <p className="placeholder" style={{ margin: 0, fontSize: 13 }}>
           Sign in to the operator console
         </p>
@@ -59,9 +64,10 @@ export default function Login() {
             <button className="primary" type="submit" disabled={submitting} style={{ justifyContent: "center", marginTop: 4 }}>
               {submitting ? "Signing in…" : "Sign in"}
             </button>
-            {error && <div className="alert err" style={{ margin: 0 }}>{error}</div>}
+            {(error || googleError) && <div className="alert err" style={{ margin: 0 }}>{error || googleError}</div>}
           </div>
         </form>
+        <GoogleSignInButton />
       </section>
       <p className="placeholder" style={{ textAlign: "center", fontSize: 13, marginTop: 14 }}>
         Don't have an account? <Link to="/register">Register</Link>

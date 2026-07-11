@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { NavLink, Outlet, useLocation } from "react-router-dom";
 import Icon from "./Icon";
 import StatusPill from "./StatusPill";
+import Threads from "./Threads";
 import { useAuth } from "../context/AuthContext";
 
 const NAV_LINKS = [
@@ -10,6 +11,7 @@ const NAV_LINKS = [
   { to: "/investigations", label: "Investigations", icon: "list" },
   { to: "/clients", label: "Clients", icon: "users" },
   { to: "/runbooks", label: "Runbooks", icon: "book" },
+  { to: "/settings/profile", label: "Profile", icon: "user" },
   { to: "/settings/integrations", label: "Integrations", icon: "zap" },
   { to: "/demo", label: "Demo & testing", icon: "flask" },
 ];
@@ -28,11 +30,14 @@ export default function Layout() {
 
   return (
     <>
+      <div className="app-ambient-bg" aria-hidden="true">
+        <Threads color={[91, 140, 255]} amplitude={0.4} distance={0.1} />
+      </div>
       <header>
         <div className="row" style={{ gap: 20 }}>
           <div className="brand">
             <span className="brand-mark">👻</span>
-            <h1>Phantom Investigator</h1>
+            <h1 className="brand-shine">Phantom Investigator</h1>
           </div>
           <nav className="row nav-desktop" style={{ gap: 2 }}>
             {NAV_LINKS.map((link) => (
