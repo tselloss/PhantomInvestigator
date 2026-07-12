@@ -94,7 +94,10 @@ def test_me_returns_current_user_after_login(monkeypatch, client):
 
 
 def test_me_reports_tos_accepted_true_once_set(monkeypatch, client):
-    user = {"id": 5, "username": "bob", "password_hash": "hashed", "tos_accepted_at": "2026-07-11T00:00:00Z"}
+    user = {
+        "id": 5, "username": "bob", "password_hash": "hashed",
+        "tos_accepted_at": "2026-07-11T00:00:00Z", "tos_version": users.CURRENT_TOS_VERSION,
+    }
     monkeypatch.setattr(users, "get_user_by_username", lambda username: user)
     monkeypatch.setattr(users, "verify_password", lambda u, p: True)
     monkeypatch.setattr(users, "get_user_by_id", lambda user_id: user)
@@ -147,10 +150,46 @@ def test_auth_middleware_attaches_user_to_request_state(monkeypatch, client):
     for /api/* routes -- this is what get_current_user() reads. Uses the
     existing /api/settings/ai status endpoint (auth-gated, doesn't itself
     need per-user scoping to prove this) as a probe."""
-    user = {"id": 5, "username": "bob", "password_hash": "hashed"}
+    user = {
+        "id": 5, "username": "bob", "password_hash": "hashed",
+        "tos_accepted_at": "2026-01-01T00:00:00Z", "tos_version": users.CURRENT_TOS_VERSION,
+    }
     monkeypatch.setattr(users, "get_user_by_username", lambda username: user)
+    monkeypatch.setattr(users, "get_user_by_id", lambda user_id: user)
     monkeypatch.setattr(users, "verify_password", lambda u, p: True)
 
     client.post("/auth/login", json={"username": "bob", "password": "pw"})
     resp = client.get("/api/settings/ai")
     assert resp.status_code == 200
+
+
+def test_auth_middleware_blocks_api_when_terms_never_accepted(monkeypatch, client):
+    """The actual security fix: a logged-in user who hasn't accepted the
+    Terms of Service must not reach any /api/* route, even though they have
+    a valid session -- this is what makes TermsGate a real server-side gate
+    instead of a UI-only popup a direct API call could skip."""
+    user = {"id": 5, "username": "bob", "password_hash": "hashed", "tos_accepted_at": None, "tos_version": None}
+    monkeypatch.setattr(users, "get_user_by_username", lambda username: user)
+    monkeypatch.setattr(users, "get_user_by_id", lambda user_id: user)
+    monkeypatch.setattr(users, "verify_password", lambda u, p: True)
+
+    client.post("/auth/login", json={"username": "bob", "password": "pw"})
+    resp = client.get("/api/settings/ai")
+    assert resp.status_code == 403
+
+
+def test_auth_middleware_blocks_api_when_tos_version_is_stale(monkeypatch, client):
+    """Bumping users.CURRENT_TOS_VERSION (e.g. after editing
+    terms-of-service.md) must re-gate users who accepted an older version,
+    not just users who never accepted anything."""
+    user = {
+        "id": 5, "username": "bob", "password_hash": "hashed",
+        "tos_accepted_at": "2020-01-01T00:00:00Z", "tos_version": users.CURRENT_TOS_VERSION - 1,
+    }
+    monkeypatch.setattr(users, "get_user_by_username", lambda username: user)
+    monkeypatch.setattr(users, "get_user_by_id", lambda user_id: user)
+    monkeypatch.setattr(users, "verify_password", lambda u, p: True)
+
+    client.post("/auth/login", json={"username": "bob", "password": "pw"})
+    resp = client.get("/api/settings/ai")
+    assert resp.status_code == 403

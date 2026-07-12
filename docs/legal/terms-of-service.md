@@ -1,16 +1,15 @@
-> **DRAFT — prepared by an AI assistant, not a lawyer.** This is a plain-language Terms of
-> Service for a **free, non-commercial** tool. No attorney has reviewed it. That's a reasonable
-> call for a free hobby/community project — but note that "free" doesn't make you immune to
-> things like data-protection law (GDPR, since you're EU-based) or a user claiming harm from
-> AI-generated advice. If this project ever starts charging, handling sensitive/regulated data
-> (health, financial), or gets meaningfully large, it's worth a real legal review at that point.
-> Fill in the bracketed items (`[...]`) before publishing.
+> **Prepared by an AI assistant, not a lawyer.** This is a plain-language Terms of Service for a
+> **free, non-commercial** tool. No attorney has reviewed it. That's a reasonable call for a free
+> hobby/community project — but note that "free" doesn't make you immune to things like
+> data-protection law (GDPR, since you're EU-based) or a user claiming harm from AI-generated
+> advice. If this project ever starts charging, handling sensitive/regulated data (health,
+> financial), or gets meaningfully large, it's worth a real legal review at that point.
 
 # Terms of Service
 
-**Effective date:** [DATE]
+**Effective date:** 2026-07-12
 **Service:** Phantom Investigator (the "Service")
-**Operator:** [Your name or entity], ("we," "us," "the Operator")
+**Operator:** Evangelos Karachristos, ("we," "us," "the Operator")
 
 These Terms of Service ("Terms") govern your access to and use of Phantom Investigator. By
 creating an account or otherwise using the Service, you agree to these Terms.
@@ -98,7 +97,8 @@ Because the Service is offered free of charge, on a best-effort basis: TO THE MA
 PERMITTED BY LAW, WE ARE NOT LIABLE FOR ANY INDIRECT, INCIDENTAL, SPECIAL, CONSEQUENTIAL, OR
 PUNITIVE DAMAGES, OR FOR LOST PROFITS OR LOST DATA, ARISING FROM YOUR USE OF THE SERVICE, EVEN IF
 ADVISED OF THE POSSIBILITY OF SUCH DAMAGES. OUR TOTAL LIABILITY FOR ANY CLAIM RELATING TO THE
-SERVICE WILL NOT EXCEED [€100 / $100]. Nothing here limits liability that can't be limited under
+SERVICE WILL NOT EXCEED THE GREATER OF $100 USD OR THE AMOUNT YOU PAID US FOR THE SERVICE IN THE
+12 MONTHS BEFORE THE CLAIM AROSE. Nothing here limits liability that can't be limited under
 applicable law (e.g., gross negligence, willful misconduct, death or personal injury).
 
 ## 10. Termination
@@ -115,12 +115,11 @@ accept it.
 
 ## 12. Governing Law
 
-[TO BE COMPLETED — e.g., "These Terms are governed by the laws of Greece, without regard to
-conflict-of-law principles."]
+These Terms are governed by the laws of Greece, without regard to conflict-of-law principles.
 
 ## 13. General
 
 These Terms, together with the Privacy Policy, are the entire agreement between you and us
 regarding the Service. If any provision is unenforceable, the rest remains in effect.
 
-**Contact:** [your contact email]
+**Contact:** vageliskarac@gmail.com

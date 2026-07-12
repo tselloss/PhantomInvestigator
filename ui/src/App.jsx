@@ -17,7 +17,6 @@ import Clients from "./pages/Clients";
 import Runbooks from "./pages/Runbooks";
 import Integrations from "./pages/Integrations";
 import Profile from "./pages/Profile";
-import Demo from "./pages/Demo";
 import NotFound from "./pages/NotFound";
 
 function App() {
@@ -41,7 +40,6 @@ function App() {
                   <Route path="/runbooks" element={<Runbooks />} />
                   <Route path="/settings/profile" element={<Profile />} />
                   <Route path="/settings/integrations" element={<Integrations />} />
-                  <Route path="/demo" element={<Demo />} />
                 </Route>
               </Route>
               <Route path="*" element={<NotFound />} />

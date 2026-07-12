@@ -18,8 +18,11 @@ export default function Terms() {
 
       <section style={{ display: "flex", flexDirection: "column", gap: 18, fontSize: 14, lineHeight: 1.65 }}>
         <p className="placeholder">
-          This is a plain-language summary. It is not a substitute for legal advice — see the full
-          text in the project repository at <code>docs/legal/terms-of-service.md</code>.
+          This is a plain-language summary. It is not a substitute for legal advice — see the{" "}
+          <a href="/legal/terms-of-service.md" target="_blank" rel="noopener noreferrer">
+            full Terms of Service
+          </a>
+          .
         </p>
 
         <div>
@@ -77,8 +80,11 @@ export default function Terms() {
         </div>
 
         <p className="placeholder" style={{ marginTop: 8 }}>
-          Full terms, including the acceptable-use list and governing law, are in{" "}
-          <code>docs/legal/terms-of-service.md</code>.
+          Full terms, including the acceptable-use list and governing law, are in the{" "}
+          <a href="/legal/terms-of-service.md" target="_blank" rel="noopener noreferrer">
+            full Terms of Service
+          </a>
+          .
         </p>
       </section>
 

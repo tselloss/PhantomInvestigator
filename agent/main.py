@@ -21,7 +21,7 @@ import investigations
 import screenshots
 import vision
 from rate_limit import RateLimitMiddleware
-from routes.auth import SESSION_COOKIE, get_current_user, verify_session_cookie
+from routes.auth import SESSION_COOKIE, get_current_user, user_tos_accepted, verify_session_cookie
 from routes.auth import router as auth_router
 from routes.checkin import router as checkin_router
 from routes.client_integrations import router as client_integrations_router
@@ -38,6 +38,11 @@ log = structlog.get_logger(__name__)
 
 DEMO_APP_URL = os.environ.get("DEMO_APP_URL", "http://localhost:8001")
 
+try:
+    APP_VERSION = open("VERSION").read().strip()
+except FileNotFoundError:
+    APP_VERSION = "dev"
+
 
 class AuthMiddleware(BaseHTTPMiddleware):
     """Gates everything under /api -- the JSON data the React app fetches
@@ -51,6 +56,8 @@ class AuthMiddleware(BaseHTTPMiddleware):
             user = verify_session_cookie(request.cookies.get(SESSION_COOKIE))
             if not user:
                 return JSONResponse({"detail": "not authenticated"}, status_code=401)
+            if not user_tos_accepted(user["user_id"]):
+                return JSONResponse({"detail": "terms of service not accepted"}, status_code=403)
             request.state.user = user
         return await call_next(request)
 
@@ -266,7 +273,7 @@ async def investigate_stream(
 
 @app.get("/health")
 async def health():
-    return {"ok": True}
+    return {"ok": True, "version": APP_VERSION}
 
 
 @app.get("/api/demo/health")
@@ -316,6 +323,13 @@ _UI_INDEX = os.path.join(_UI_DIST, "index.html")
 
 if os.path.isdir(os.path.join(_UI_DIST, "assets")):
     app.mount("/assets", StaticFiles(directory=os.path.join(_UI_DIST, "assets")), name="ui-assets")
+
+# Public (no auth) so the /terms page's link to the full document works for
+# logged-out visitors too -- same tier as /health, not gated by AuthMiddleware
+# since that only intercepts /api/*. Copied into the image by the Dockerfile.
+_LEGAL_DIR = os.path.join(os.path.dirname(__file__), "docs", "legal")
+if os.path.isdir(_LEGAL_DIR):
+    app.mount("/legal", StaticFiles(directory=_LEGAL_DIR), name="legal-docs")
 
 
 def _render_ui() -> str:

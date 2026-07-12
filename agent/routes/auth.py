@@ -149,7 +149,25 @@ def me(request: Request):
     user = users.get_user_by_id(session["user_id"])
     if not user:
         raise HTTPException(401, "not authenticated")
-    return {"id": user["id"], "username": user["username"], "tos_accepted": bool(user.get("tos_accepted_at"))}
+    return {"id": user["id"], "username": user["username"], "tos_accepted": _tos_current(user)}
+
+
+def _tos_current(user: dict) -> bool:
+    """True if this user has accepted the *currently published* Terms of
+    Service -- not just accepted some version in the past. Bumping
+    users.CURRENT_TOS_VERSION (e.g. after editing terms-of-service.md) makes
+    this go False for everyone who accepted an older version, so they see
+    TermsGate again and are re-gated server-side until they re-accept."""
+    return bool(user.get("tos_accepted_at")) and user.get("tos_version") == users.CURRENT_TOS_VERSION
+
+
+def user_tos_accepted(user_id: int) -> bool:
+    """Fresh DB check (not embedded in the JWT) so accepting terms takes
+    effect immediately rather than waiting for the session to be reissued.
+    Used by AuthMiddleware in main.py to gate /api/* server-side -- the
+    TermsGate popup only blocks the React UI, not direct API calls."""
+    user = users.get_user_by_id(user_id)
+    return bool(user) and _tos_current(user)
 
 
 @router.post("/accept-terms")

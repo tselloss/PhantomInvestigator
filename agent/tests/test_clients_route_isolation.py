@@ -11,6 +11,7 @@ from tests.test_clients_isolation import _FakeConn
 
 def _login_as(monkeypatch, user_id: int):
     monkeypatch.setattr(main, "verify_session_cookie", lambda token: {"user_id": user_id, "username": f"user-{user_id}"})
+    monkeypatch.setattr(main, "user_tos_accepted", lambda user_id: True)
 
 
 def test_user_cannot_fetch_another_users_client_via_the_api(monkeypatch):

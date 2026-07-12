@@ -56,6 +56,7 @@ echo "Generating secrets that don't need a human to invent them..."
 
 fill SESSION_SECRET "$(rand_hex 32)"
 fill CREDENTIALS_ENCRYPTION_KEY "$(rand_fernet)"
+fill POSTGRES_PASSWORD "$(rand_hex 16)"
 
 fill LANGFUSE_SALT "$(rand_hex 32)"
 fill LANGFUSE_ENCRYPTION_KEY "$(rand_hex 32)"

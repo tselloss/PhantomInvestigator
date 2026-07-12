@@ -17,13 +17,14 @@ function isTypingTarget(el) {
   return tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT" || el.isContentEditable;
 }
 
-export default function useKeyboardShortcuts({ onOpenPalette }) {
+export default function useKeyboardShortcuts({ onOpenPalette, disabled = false }) {
   const navigate = useNavigate();
   const pendingG = useRef(false);
   const timerRef = useRef(null);
 
   useEffect(() => {
     function onKeyDown(e) {
+      if (disabled) return;
       const mod = e.metaKey || e.ctrlKey;
       if (mod && e.key.toLowerCase() === "k") {
         e.preventDefault();
@@ -54,5 +55,5 @@ export default function useKeyboardShortcuts({ onOpenPalette }) {
       window.removeEventListener("keydown", onKeyDown);
       clearTimeout(timerRef.current);
     };
-  }, [navigate, onOpenPalette]);
+  }, [navigate, onOpenPalette, disabled]);
 }

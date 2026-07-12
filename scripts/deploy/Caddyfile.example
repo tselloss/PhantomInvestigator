@@ -1,0 +1,12 @@
+# Reverse proxy + automatic TLS for PhantomInvestigator, if nothing already
+# fronts ports 80/443 on this server (see docs/deployment.md step 0 -- if
+# ClinicOps already runs behind nginx/Traefik/Coolify there, add a
+# server block/route there instead of running a second proxy).
+#
+# Install: https://caddyserver.com/docs/install
+# Usage:   sudo cp Caddyfile.example /etc/caddy/Caddyfile   (edit the domain
+#          below first), then: sudo systemctl reload caddy
+
+phantominvestigator.com {
+	reverse_proxy localhost:8085
+}

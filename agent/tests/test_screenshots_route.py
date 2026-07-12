@@ -11,6 +11,7 @@ def bypass_auth(monkeypatch):
     """/api/* is session-gated by main.AuthMiddleware; these tests exercise
     the screenshot intake route itself, not the login flow."""
     monkeypatch.setattr(main, "verify_session_cookie", lambda token: {"user_id": 1, "username": "test-operator"})
+    monkeypatch.setattr(main, "user_tos_accepted", lambda user_id: True)
 
 
 client = TestClient(main.app)

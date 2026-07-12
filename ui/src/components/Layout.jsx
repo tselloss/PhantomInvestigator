@@ -1,7 +1,6 @@
 import { useEffect, useState } from "react";
 import { Outlet, useLocation } from "react-router-dom";
 import Icon from "./Icon";
-import StatusPill from "./StatusPill";
 import Threads from "./Threads";
 import Sidebar from "./Sidebar";
 import CommandPalette from "./CommandPalette";
@@ -27,7 +26,13 @@ export default function Layout() {
     localStorage.setItem("sidebar-collapsed", collapsed ? "1" : "0");
   }, [collapsed]);
 
-  useKeyboardShortcuts({ onOpenPalette: () => setPaletteOpen(true) });
+  // TermsGate below renders on top of everything once tosAccepted is false,
+  // but a fixed-position overlay alone doesn't stop keyboard shortcuts or
+  // page-level effects from still running behind it -- gate those too so
+  // it's a real block, not just a visual one.
+  const gateOpen = !!user && user.tosAccepted === false;
+
+  useKeyboardShortcuts({ onOpenPalette: () => setPaletteOpen(true), disabled: gateOpen });
 
   const activeLink = NAV_LINKS.find((l) => (l.end ? location.pathname === l.to : location.pathname.startsWith(l.to)));
   const title = activeLink?.label || "Phantom Investigator";
@@ -59,12 +64,11 @@ export default function Layout() {
             <h1 className="topbar-title">{title}</h1>
           </div>
           <div className="row" style={{ gap: 10 }}>
-            <button className="palette-trigger" onClick={() => setPaletteOpen(true)}>
+            <button className="palette-trigger" onClick={() => setPaletteOpen(true)} disabled={gateOpen}>
               <Icon name="search" size={14} />
               Search
               <kbd>{isMac ? "⌘" : "Ctrl"} K</kbd>
             </button>
-            <StatusPill />
             {user && (
               <button onClick={logout} title={`Logged in as ${user.username}`}>
                 <Icon name="logOut" size={14} />
@@ -73,12 +77,10 @@ export default function Layout() {
           </div>
         </header>
 
-        <main>
-          <Outlet />
-        </main>
+        <main>{gateOpen ? null : <Outlet />}</main>
       </div>
 
-      <CommandPalette open={paletteOpen} onClose={() => setPaletteOpen(false)} navLinks={NAV_LINKS} />
+      <CommandPalette open={paletteOpen && !gateOpen} onClose={() => setPaletteOpen(false)} navLinks={NAV_LINKS} />
       <TermsGate />
     </div>
   );

@@ -1,11 +1,14 @@
 import { Link, NavLink } from "react-router-dom";
 import Icon from "./Icon";
 import { NAV_LINKS } from "../lib/navLinks";
+import useSidebarBadges from "../hooks/useSidebarBadges";
 
 const GITHUB_URL = "https://github.com/tselloss";
 const COFFEE_URL = "https://buymeacoffee.com/tsellosskr";
 
 export default function Sidebar({ collapsed, onToggleCollapse, mobileOpen, onCloseMobile }) {
+  const badges = useSidebarBadges();
+
   return (
     <>
       {mobileOpen && <div className="sidebar-scrim" onClick={onCloseMobile} aria-hidden="true" />}
@@ -20,19 +23,31 @@ export default function Sidebar({ collapsed, onToggleCollapse, mobileOpen, onClo
         </div>
 
         <nav className="sidebar-nav">
-          {NAV_LINKS.map((link) => (
-            <NavLink
-              key={link.to}
-              to={link.to}
-              end={link.end}
-              onClick={onCloseMobile}
-              className={({ isActive }) => "sidebar-link" + (isActive ? " active" : "")}
-              title={collapsed ? link.label : undefined}
-            >
-              <Icon name={link.icon} size={17} />
-              {!collapsed && <span>{link.label}</span>}
-            </NavLink>
-          ))}
+          {NAV_LINKS.map((link) => {
+            const badge = badges[link.to];
+            const title = collapsed
+              ? badge
+                ? `${link.label} (${badge.count})`
+                : link.label
+              : undefined;
+            return (
+              <NavLink
+                key={link.to}
+                to={link.to}
+                end={link.end}
+                onClick={onCloseMobile}
+                className={({ isActive }) => "sidebar-link" + (isActive ? " active" : "")}
+                title={title}
+              >
+                <span className="sidebar-link-icon">
+                  <Icon name={link.icon} size={17} />
+                  {collapsed && badge && <span className={"sidebar-badge-dot " + badge.variant} />}
+                </span>
+                {!collapsed && <span className="sidebar-link-label">{link.label}</span>}
+                {!collapsed && badge && <span className={"sidebar-badge " + badge.variant}>{badge.count}</span>}
+              </NavLink>
+            );
+          })}
         </nav>
 
         <div className="sidebar-footer">

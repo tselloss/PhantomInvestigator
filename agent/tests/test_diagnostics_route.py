@@ -15,6 +15,7 @@ def bypass_auth(monkeypatch):
     the diagnostics routes themselves, not the login flow, so bypass it the
     same way a valid session cookie would."""
     monkeypatch.setattr(main, "verify_session_cookie", lambda token: {"user_id": 1, "username": "test-operator"})
+    monkeypatch.setattr(main, "user_tos_accepted", lambda user_id: True)
 
 
 client = TestClient(main.app)

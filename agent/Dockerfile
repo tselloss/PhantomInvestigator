@@ -12,5 +12,7 @@ WORKDIR /app
 COPY agent/requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 COPY agent/ .
+COPY docs/legal ./docs/legal
+COPY VERSION .
 COPY --from=ui-build /ui/dist ./static/ui
 CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8080", "--no-access-log"]

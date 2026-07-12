@@ -1,7 +1,8 @@
 Draft legal documents for Phantom Investigator, prepared as a starting point for attorney
 review — not final, not legal advice. See the disclaimer at the top of each file.
 
-- [`terms-of-service.md`](./terms-of-service.md) — the B2B agreement with each Client.
+- [`terms-of-service.md`](./terms-of-service.md) — the free, individual-user Terms of Service
+  accepted at signup.
 - [`privacy-policy.md`](./privacy-policy.md) — covers registered console-user account data
   (Company is Controller).
 - [`data-processing-agreement.md`](./data-processing-agreement.md) — the GDPR Art. 28 contract

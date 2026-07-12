@@ -22,13 +22,13 @@ class _FakeConn:
 
     def execute(self, sql, params=None):
         sql = " ".join(sql.split())
-        if sql.startswith("INSERT INTO users (username, password_hash, tos_accepted_at)"):
-            username, password_hash, tos_accepted_at = params
+        if sql.startswith("INSERT INTO users (username, password_hash, tos_accepted_at, tos_version)"):
+            username, password_hash, tos_accepted_at, tos_version = params
             if username in self.table:
                 raise psycopg.errors.UniqueViolation("duplicate username")
             row = (
                 self._next_id, username, password_hash, "2024-01-01T00:00:00Z", None, None, None, False,
-                tos_accepted_at,
+                tos_accepted_at, tos_version,
             )
             self.table[username] = row
             self._next_id += 1
@@ -37,7 +37,9 @@ class _FakeConn:
             username, email, google_id = params
             if username in self.table:
                 raise psycopg.errors.UniqueViolation("duplicate username")
-            row = (self._next_id, username, None, "2024-01-01T00:00:00Z", email, google_id, None, False, None)
+            row = (
+                self._next_id, username, None, "2024-01-01T00:00:00Z", email, google_id, None, False, None, None,
+            )
             self.table[username] = row
             self._next_id += 1
             self._result = row
@@ -63,10 +65,10 @@ class _FakeConn:
                     break
             self._result = None
         elif sql.startswith("UPDATE users SET tos_accepted_at"):
-            (user_id,) = params
+            tos_version, user_id = params
             for uname, row in self.table.items():
                 if row[0] == user_id:
-                    self.table[uname] = row[:8] + (row[8] or "2024-01-01T00:00:00Z",)
+                    self.table[uname] = row[:8] + ("2024-01-01T00:00:00Z", tos_version)
                     break
             self._result = None
         elif "FROM users WHERE username" in sql:
@@ -255,3 +257,22 @@ def test_accept_terms_does_not_disturb_demo_mode(fake_db):
     users.accept_terms(created["id"])
     fetched = users.get_user_by_id(created["id"])
     assert fetched["demo_mode"] is True
+
+
+def test_create_user_leaves_tos_version_none_by_default(fake_db):
+    created = users.create_user("olivia", "hunter2")
+    assert created["tos_version"] is None
+
+
+def test_create_user_stamps_current_tos_version_when_requested(fake_db):
+    created = users.create_user("peter", "hunter2", tos_accepted=True)
+    assert created["tos_version"] == users.CURRENT_TOS_VERSION
+
+
+def test_accept_terms_stamps_current_tos_version(fake_db):
+    created = users.create_user("quinn", "hunter2")
+    assert created["tos_version"] is None
+
+    users.accept_terms(created["id"])
+    fetched = users.get_user_by_id(created["id"])
+    assert fetched["tos_version"] == users.CURRENT_TOS_VERSION

@@ -8,6 +8,7 @@ from routes import client_tickets
 @pytest.fixture(autouse=True)
 def bypass_auth(monkeypatch):
     monkeypatch.setattr(main, "verify_session_cookie", lambda token: {"user_id": 1, "username": "test-operator"})
+    monkeypatch.setattr(main, "user_tos_accepted", lambda user_id: True)
 
 
 client = TestClient(main.app)
