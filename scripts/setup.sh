@@ -58,6 +58,11 @@ fill SESSION_SECRET "$(rand_hex 32)"
 fill CREDENTIALS_ENCRYPTION_KEY "$(rand_fernet)"
 fill POSTGRES_PASSWORD "$(rand_hex 16)"
 
+# DATABASE_URL's password can't reference ${POSTGRES_PASSWORD} -- env_file:
+# doesn't expand vars inside another var's value -- so keep them in sync here.
+PG_PASSWORD="$(current_value POSTGRES_PASSWORD)"
+sed -i.bak -E "s#(^DATABASE_URL=postgresql://postgres:)[^@]*(@.*)#\1${PG_PASSWORD}\2#" "$ENV_FILE" && rm -f "$ENV_FILE.bak"
+
 fill LANGFUSE_SALT "$(rand_hex 32)"
 fill LANGFUSE_ENCRYPTION_KEY "$(rand_hex 32)"
 fill LANGFUSE_NEXTAUTH_SECRET "$(rand_hex 32)"
