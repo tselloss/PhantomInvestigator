@@ -23,14 +23,6 @@ def test_get_work_item_requires_config(monkeypatch):
     assert ado.get_work_item(42, 1).startswith("ERROR")
 
 
-def test_get_work_item_returns_demo_data_when_demo_mode_enabled(monkeypatch):
-    monkeypatch.setattr(ado, "AZURE_DEVOPS_ORG", "")
-    monkeypatch.setattr(ado.users, "get_demo_mode", lambda user_id: True)
-    result = ado.get_work_item(42, 1)
-    assert "DEMO DATA" in result
-    assert "42" in result
-
-
 @respx.mock
 def test_get_work_item_formats_fields(monkeypatch):
     _configure(monkeypatch)
@@ -81,14 +73,6 @@ def test_get_work_item_tolerates_comments_endpoint_failure(monkeypatch):
     result = ado.get_work_item(42, 1)
     assert "Investigate" in result
     assert not result.startswith("ERROR")
-
-
-def test_post_comment_returns_demo_data_when_demo_mode_enabled(monkeypatch):
-    monkeypatch.setattr(ado, "AZURE_DEVOPS_PAT", "")
-    monkeypatch.setattr(ado.users, "get_demo_mode", lambda user_id: True)
-    result = ado.post_comment(42, "body", 1)
-    assert "demo mode" in result
-    assert "42" in result
 
 
 def test_post_comment_requires_config(monkeypatch):
@@ -147,12 +131,6 @@ def test_get_recent_commits_requires_config(monkeypatch):
     assert ado.get_recent_commits(1).startswith("ERROR")
 
 
-def test_get_recent_commits_returns_demo_data_when_demo_mode_enabled(monkeypatch):
-    monkeypatch.setattr(ado, "AZURE_DEVOPS_ORG", "")
-    monkeypatch.setattr(ado.users, "get_demo_mode", lambda user_id: True)
-    assert "DEMO DATA" in ado.get_recent_commits(1)
-
-
 @respx.mock
 def test_get_recent_commits_formats_across_repos(monkeypatch):
     _configure(monkeypatch)
@@ -207,12 +185,6 @@ def test_get_recent_builds_requires_config(monkeypatch):
     assert ado.get_recent_builds(1).startswith("ERROR")
 
 
-def test_get_recent_builds_returns_demo_data_when_demo_mode_enabled(monkeypatch):
-    monkeypatch.setattr(ado, "AZURE_DEVOPS_ORG", "")
-    monkeypatch.setattr(ado.users, "get_demo_mode", lambda user_id: True)
-    assert "DEMO DATA" in ado.get_recent_builds(1)
-
-
 @respx.mock
 def test_get_recent_builds_formats_results(monkeypatch):
     _configure(monkeypatch)
@@ -253,12 +225,6 @@ def test_search_work_items_requires_config(monkeypatch):
     assert ado.search_work_items("checkout", 1).startswith("ERROR")
 
 
-def test_search_work_items_returns_demo_data_when_demo_mode_enabled(monkeypatch):
-    monkeypatch.setattr(ado, "AZURE_DEVOPS_ORG", "")
-    monkeypatch.setattr(ado.users, "get_demo_mode", lambda user_id: True)
-    assert "DEMO DATA" in ado.search_work_items("checkout", 1)
-
-
 @respx.mock
 def test_search_work_items_formats_matches(monkeypatch):
     _configure(monkeypatch)
@@ -291,13 +257,6 @@ def test_search_work_items_no_matches(monkeypatch):
 def test_list_recent_work_items_returns_empty_when_not_configured(monkeypatch):
     monkeypatch.setattr(ado, "AZURE_DEVOPS_ORG", "")
     assert ado.list_recent_work_items(1) == []
-
-
-def test_list_recent_work_items_returns_demo_data_when_demo_mode_enabled(monkeypatch):
-    monkeypatch.setattr(ado, "AZURE_DEVOPS_ORG", "")
-    monkeypatch.setattr(ado.users, "get_demo_mode", lambda user_id: True)
-    result = ado.list_recent_work_items(1)
-    assert result[0]["source"] == "azure_devops"
 
 
 @respx.mock

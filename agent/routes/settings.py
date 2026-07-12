@@ -92,12 +92,3 @@ def set_monthly_limit(req: SetLimitRequest, user: dict = Depends(get_current_use
         return integration_settings.set_monthly_limit(user["user_id"], req.monthly_limit_usd)
     except ValueError as e:
         raise HTTPException(400, str(e))
-
-
-class SetDemoModeRequest(BaseModel):
-    enabled: bool
-
-
-@router.post("/profile/demo-mode")
-def set_demo_mode(req: SetDemoModeRequest, user: dict = Depends(get_current_user)):
-    return integration_settings.set_demo_mode(user["user_id"], req.enabled)

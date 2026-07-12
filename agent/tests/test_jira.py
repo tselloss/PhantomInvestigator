@@ -37,14 +37,6 @@ def test_get_ticket_requires_base_url(monkeypatch):
     assert jira.get_ticket("OPS-1", 1).startswith("ERROR")
 
 
-def test_get_ticket_returns_demo_data_when_demo_mode_enabled(monkeypatch):
-    monkeypatch.setattr(jira, "JIRA_BASE_URL", "")
-    monkeypatch.setattr(jira.users, "get_demo_mode", lambda user_id: True)
-    result = jira.get_ticket("OPS-1", 1)
-    assert "DEMO DATA" in result
-    assert "OPS-1" in result
-
-
 @respx.mock
 def test_get_ticket_formats_fields(monkeypatch):
     monkeypatch.setattr(jira, "JIRA_BASE_URL", "https://example.atlassian.net")
@@ -111,14 +103,6 @@ def test_issue_url_none_when_no_base_url(monkeypatch):
     assert jira.issue_url("OPS-1", 1) is None
 
 
-def test_post_comment_returns_demo_data_when_demo_mode_enabled(monkeypatch):
-    monkeypatch.setattr(jira, "JIRA_BASE_URL", "")
-    monkeypatch.setattr(jira.users, "get_demo_mode", lambda user_id: True)
-    result = jira.post_comment("OPS-1", "body", 1)
-    assert "demo mode" in result
-    assert "OPS-1" in result
-
-
 def test_post_comment_requires_base_url(monkeypatch):
     monkeypatch.setattr(jira, "JIRA_BASE_URL", "")
     assert jira.post_comment("OPS-1", "body", 1).startswith("ERROR")
@@ -151,13 +135,6 @@ def test_post_comment_handles_http_error(monkeypatch):
 def test_list_recent_issues_returns_empty_when_not_configured(monkeypatch):
     monkeypatch.setattr(jira, "JIRA_BASE_URL", "")
     assert jira.list_recent_issues(1) == []
-
-
-def test_list_recent_issues_returns_demo_data_when_demo_mode_enabled(monkeypatch):
-    monkeypatch.setattr(jira, "JIRA_BASE_URL", "")
-    monkeypatch.setattr(jira.users, "get_demo_mode", lambda user_id: True)
-    result = jira.list_recent_issues(1)
-    assert result[0]["source"] == "jira"
 
 
 @respx.mock

@@ -10,9 +10,7 @@ from datetime import datetime, timedelta, timezone
 
 import httpx
 
-import demo_data
 import integration_credentials
-import users
 from ._http import request_with_retry
 
 ZENDESK_SUBDOMAIN = os.environ.get("ZENDESK_SUBDOMAIN", "")
@@ -51,8 +49,6 @@ def search_tickets(query: str, user_id: int, deployment_id: int | None = None) -
     so this can't accidentally search users/organizations instead."""
     cfg = _config(user_id, deployment_id=deployment_id)
     if not (cfg["subdomain"] and cfg["email"] and cfg["api_token"]):
-        if users.get_demo_mode(user_id):
-            return demo_data.zendesk_tickets(query)
         return "ERROR: Zendesk subdomain/email/API token not configured"
     try:
         resp = request_with_retry(
@@ -83,8 +79,6 @@ def list_recent_tickets(user_id: int, client_id: int | None = None, days: int = 
     no-config/failures just return an empty list rather than an ERROR string."""
     cfg = _config(user_id, client_id=client_id)
     if not (cfg["subdomain"] and cfg["email"] and cfg["api_token"]):
-        if users.get_demo_mode(user_id):
-            return demo_data.zendesk_recent_tickets()
         return []
 
     since = (datetime.now(timezone.utc) - timedelta(days=days)).strftime("%Y-%m-%d")

@@ -439,7 +439,6 @@ def get_profile(user_id: int) -> dict:
         "sign_in_method": "google" if user.get("google_id") else "password",
         "monthly_limit_usd": budget["limit_usd"],
         "spent_this_month_usd": budget["spent_usd"],
-        "demo_mode": bool(user.get("demo_mode")),
     }
 
 
@@ -447,9 +446,4 @@ def set_monthly_limit(user_id: int, limit_usd: float | None) -> dict:
     if limit_usd is not None and limit_usd < 0:
         raise ValueError("monthly_limit_usd must be >= 0")
     users.update_monthly_limit(user_id, limit_usd)
-    return get_profile(user_id)
-
-
-def set_demo_mode(user_id: int, enabled: bool) -> dict:
-    users.update_demo_mode(user_id, enabled)
     return get_profile(user_id)

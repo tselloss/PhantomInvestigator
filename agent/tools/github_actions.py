@@ -8,9 +8,7 @@ import os
 
 import httpx
 
-import demo_data
 import integration_credentials
-import users
 from ._http import request_with_retry
 
 GITHUB_TOKEN = os.environ.get("GITHUB_TOKEN", "")
@@ -41,8 +39,6 @@ def get_recent_runs(repo: str, user_id: int, deployment_id: int | None = None) -
     """repo: 'owner/name'. Returns the most recent workflow runs with status/conclusion."""
     cfg = _config(user_id, deployment_id=deployment_id)
     if not cfg["token"]:
-        if users.get_demo_mode(user_id):
-            return demo_data.github_recent_runs(repo)
         return "ERROR: GITHUB_TOKEN not configured"
     try:
         resp = request_with_retry(
@@ -68,8 +64,6 @@ def get_run_logs(repo: str, run_id: int, user_id: int, deployment_id: int | None
     """Fetch logs for the failed jobs in a workflow run."""
     cfg = _config(user_id, deployment_id=deployment_id)
     if not cfg["token"]:
-        if users.get_demo_mode(user_id):
-            return demo_data.github_run_logs(repo, run_id)
         return "ERROR: GITHUB_TOKEN not configured"
     try:
         jobs_resp = request_with_retry(
@@ -105,8 +99,6 @@ def get_deploy_diff(repo: str, base: str, head: str, user_id: int, deployment_id
     """Real GitHub compare API: GET /repos/{repo}/compare/{base}...{head}."""
     cfg = _config(user_id, deployment_id=deployment_id)
     if not cfg["token"]:
-        if users.get_demo_mode(user_id):
-            return demo_data.github_deploy_diff(repo, base, head)
         return "ERROR: GITHUB_TOKEN not configured"
     try:
         resp = request_with_retry(
@@ -136,8 +128,6 @@ def get_file_contents(repo: str, path: str, ref: str, user_id: int, deployment_i
     unsafe input to a fix that gets committed verbatim."""
     cfg = _config(user_id, deployment_id=deployment_id)
     if not cfg["token"]:
-        if users.get_demo_mode(user_id):
-            return demo_data.github_file_contents(repo, path, ref)
         return "ERROR: GITHUB_TOKEN not configured"
     try:
         resp = request_with_retry(

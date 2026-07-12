@@ -15,14 +15,6 @@ def test_search_tickets_requires_config(monkeypatch):
     assert zendesk.search_tickets("checkout", 1).startswith("ERROR")
 
 
-def test_search_tickets_returns_demo_data_when_demo_mode_enabled(monkeypatch):
-    monkeypatch.setattr(zendesk, "ZENDESK_SUBDOMAIN", "")
-    monkeypatch.setattr(zendesk.users, "get_demo_mode", lambda user_id: True)
-    result = zendesk.search_tickets("checkout", 1)
-    assert "DEMO DATA" in result
-    assert "checkout" in result
-
-
 @respx.mock
 def test_search_tickets_formats_results(monkeypatch):
     _configure(monkeypatch)
@@ -78,13 +70,6 @@ def test_search_tickets_passes_deployment_id_to_config(monkeypatch):
 def test_list_recent_tickets_returns_empty_when_not_configured(monkeypatch):
     monkeypatch.setattr(zendesk, "ZENDESK_SUBDOMAIN", "")
     assert zendesk.list_recent_tickets(1) == []
-
-
-def test_list_recent_tickets_returns_demo_data_when_demo_mode_enabled(monkeypatch):
-    monkeypatch.setattr(zendesk, "ZENDESK_SUBDOMAIN", "")
-    monkeypatch.setattr(zendesk.users, "get_demo_mode", lambda user_id: True)
-    result = zendesk.list_recent_tickets(1)
-    assert result[0]["source"] == "zendesk"
 
 
 @respx.mock

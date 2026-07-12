@@ -27,7 +27,7 @@ class _FakeConn:
             if username in self.table:
                 raise psycopg.errors.UniqueViolation("duplicate username")
             row = (
-                self._next_id, username, password_hash, "2024-01-01T00:00:00Z", None, None, None, False,
+                self._next_id, username, password_hash, "2024-01-01T00:00:00Z", None, None, None,
                 tos_accepted_at, tos_version,
             )
             self.table[username] = row
@@ -38,7 +38,7 @@ class _FakeConn:
             if username in self.table:
                 raise psycopg.errors.UniqueViolation("duplicate username")
             row = (
-                self._next_id, username, None, "2024-01-01T00:00:00Z", email, google_id, None, False, None, None,
+                self._next_id, username, None, "2024-01-01T00:00:00Z", email, google_id, None, None, None,
             )
             self.table[username] = row
             self._next_id += 1
@@ -57,18 +57,11 @@ class _FakeConn:
                     self.table[uname] = row[:6] + (limit_usd,) + row[7:]
                     break
             self._result = None
-        elif sql.startswith("UPDATE users SET demo_mode"):
-            enabled, user_id = params
-            for uname, row in self.table.items():
-                if row[0] == user_id:
-                    self.table[uname] = row[:7] + (enabled,) + row[8:]
-                    break
-            self._result = None
         elif sql.startswith("UPDATE users SET tos_accepted_at"):
             tos_version, user_id = params
             for uname, row in self.table.items():
                 if row[0] == user_id:
-                    self.table[uname] = row[:8] + ("2024-01-01T00:00:00Z", tos_version)
+                    self.table[uname] = row[:7] + ("2024-01-01T00:00:00Z", tos_version)
                     break
             self._result = None
         elif "FROM users WHERE username" in sql:
@@ -197,35 +190,6 @@ def test_update_monthly_limit_can_clear_to_none(fake_db):
     assert fetched["monthly_limit_usd"] is None
 
 
-def test_get_demo_mode_defaults_false(fake_db):
-    created = users.create_user("grace", "hunter2")
-    assert users.get_demo_mode(created["id"]) is False
-
-
-def test_get_demo_mode_false_for_unknown_user(fake_db):
-    assert users.get_demo_mode(999) is False
-
-
-def test_update_demo_mode_enables_and_disables(fake_db):
-    created = users.create_user("heidi", "hunter2")
-
-    users.update_demo_mode(created["id"], True)
-    assert users.get_demo_mode(created["id"]) is True
-
-    users.update_demo_mode(created["id"], False)
-    assert users.get_demo_mode(created["id"]) is False
-
-
-def test_update_demo_mode_does_not_disturb_monthly_limit(fake_db):
-    created = users.create_user("ivan", "hunter2")
-    users.update_monthly_limit(created["id"], 10.5)
-
-    users.update_demo_mode(created["id"], True)
-    fetched = users.get_user_by_id(created["id"])
-    assert fetched["monthly_limit_usd"] == 10.5
-    assert fetched["demo_mode"] is True
-
-
 def test_create_user_leaves_tos_accepted_at_none_by_default(fake_db):
     created = users.create_user("judy", "hunter2")
     assert created["tos_accepted_at"] is None
@@ -248,15 +212,6 @@ def test_accept_terms_stamps_tos_accepted_at(fake_db):
     users.accept_terms(created["id"])
     fetched = users.get_user_by_id(created["id"])
     assert fetched["tos_accepted_at"] is not None
-
-
-def test_accept_terms_does_not_disturb_demo_mode(fake_db):
-    created = users.create_user("nolan", "hunter2")
-    users.update_demo_mode(created["id"], True)
-
-    users.accept_terms(created["id"])
-    fetched = users.get_user_by_id(created["id"])
-    assert fetched["demo_mode"] is True
 
 
 def test_create_user_leaves_tos_version_none_by_default(fake_db):

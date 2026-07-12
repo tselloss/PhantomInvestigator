@@ -4,9 +4,7 @@ import os
 
 import httpx
 
-import demo_data
 import integration_credentials
-import users
 from ._http import request_with_retry
 
 JIRA_BASE_URL = os.environ.get("JIRA_BASE_URL", "")
@@ -66,8 +64,6 @@ def issue_url(key: str, user_id: int, deployment_id: int | None = None) -> str |
 def get_ticket(key: str, user_id: int, deployment_id: int | None = None) -> str:
     cfg = _config(user_id, deployment_id=deployment_id)
     if not cfg["base_url"]:
-        if users.get_demo_mode(user_id):
-            return demo_data.jira_ticket(key)
         return "ERROR: JIRA_BASE_URL not configured"
     try:
         resp = request_with_retry(
@@ -105,8 +101,6 @@ def list_recent_issues(user_id: int, client_id: int | None = None, days: int = 3
     no-config/failures just return an empty list rather than an ERROR string."""
     cfg = _config(user_id, client_id=client_id)
     if not cfg["base_url"]:
-        if users.get_demo_mode(user_id):
-            return demo_data.jira_recent_issues()
         return []
     try:
         resp = request_with_retry(
@@ -140,8 +134,6 @@ def list_recent_issues(user_id: int, client_id: int | None = None, days: int = 3
 def post_comment(key: str, body: str, user_id: int, deployment_id: int | None = None) -> str:
     cfg = _config(user_id, deployment_id=deployment_id)
     if not cfg["base_url"]:
-        if users.get_demo_mode(user_id):
-            return demo_data.jira_post_comment(key)
         return "ERROR: JIRA_BASE_URL not configured"
     payload = {
         "body": {

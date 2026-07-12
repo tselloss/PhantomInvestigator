@@ -9,16 +9,12 @@ import Skeleton from "../components/Skeleton";
 import StatusDot from "../components/StatusDot";
 import Sparkline from "../components/Sparkline";
 import { integrationLabel } from "../lib/integrations";
-import { useToast } from "../context/ToastContext";
 
 export default function Dashboard() {
-  const toast = useToast();
   const [stats, setStats] = useState(null);
   const [recent, setRecent] = useState(null);
   const [integrations, setIntegrations] = useState(null);
   const [ai, setAi] = useState(null);
-  const [profile, setProfile] = useState(null);
-  const [togglingDemoMode, setTogglingDemoMode] = useState(false);
 
   useEffect(() => {
     fetch("/api/investigations/stats")
@@ -37,35 +33,11 @@ export default function Dashboard() {
       .then((r) => r.json())
       .then(setAi)
       .catch(() => {});
-    fetch("/api/settings/profile")
-      .then((r) => r.json())
-      .then(setProfile)
-      .catch(() => {});
   }, []);
 
-  async function turnOnDemoMode() {
-    setTogglingDemoMode(true);
-    try {
-      const res = await fetch("/api/settings/profile/demo-mode", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ enabled: true }),
-      });
-      if (!res.ok) {
-        toast.show(`Couldn't turn on demo mode (HTTP ${res.status})`, { type: "err" });
-        return;
-      }
-      setProfile((p) => ({ ...p, demo_mode: true }));
-    } catch {
-      toast.show("Couldn't turn on demo mode — check your connection.", { type: "err" });
-    } finally {
-      setTogglingDemoMode(false);
-    }
-  }
-
-  const setupLoaded = ai != null && profile != null && integrations != null && recent != null;
+  const setupLoaded = ai != null && integrations != null && recent != null;
   const aiConfigured = ai?.configured;
-  const toolsReady = profile?.demo_mode || (integrations || []).some((i) => i.configured);
+  const toolsReady = (integrations || []).some((i) => i.configured);
   const hasInvestigated = (recent?.length ?? 0) > 0;
   const setupComplete = aiConfigured && toolsReady && hasInvestigated;
   const dailyCounts = stats?.daily?.map((d) => d.count);
@@ -90,23 +62,18 @@ export default function Dashboard() {
 
           <div className="feed-row">
             <div className="row" style={{ gap: 8 }}>
-              {toolsReady ? <Icon name="check" size={15} style={{ color: "var(--ok)" }} /> : <Icon name="flask" size={15} />}
-              <span>Pick how tools respond</span>
+              {toolsReady ? <Icon name="check" size={15} style={{ color: "var(--ok)" }} /> : <Icon name="zap" size={15} />}
+              <span>Connect a tool</span>
               {toolsReady && (
                 <span className="badge ok">
-                  {profile.demo_mode ? "demo mode" : `${(integrations || []).filter((i) => i.configured).length} connected`}
+                  {(integrations || []).filter((i) => i.configured).length} connected
                 </span>
               )}
             </div>
             {!toolsReady && (
-              <div className="row" style={{ gap: 8 }}>
-                <Button variant="primary" loading={togglingDemoMode} onClick={turnOnDemoMode}>
-                  {togglingDemoMode ? "Turning on…" : "Turn on demo mode"}
-                </Button>
-                <Link to="/settings/integrations">
-                  <Button>Connect a real tool</Button>
-                </Link>
-              </div>
+              <Link to="/settings/integrations">
+                <Button variant="primary">Set up</Button>
+              </Link>
             )}
           </div>
 

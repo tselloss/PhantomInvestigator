@@ -10,9 +10,7 @@ import time
 import boto3
 from botocore.config import Config
 
-import demo_data
 import integration_credentials
-import users
 
 AWS_ACCESS_KEY_ID = os.environ.get("AWS_ACCESS_KEY_ID", "")
 AWS_SECRET_ACCESS_KEY = os.environ.get("AWS_SECRET_ACCESS_KEY", "")
@@ -48,8 +46,6 @@ def query_logs(
 ) -> str:
     cfg = _config(user_id, deployment_id=deployment_id)
     if not (cfg["access_key_id"] and cfg["secret_access_key"]):
-        if users.get_demo_mode(user_id):
-            return demo_data.aws_cloudwatch_logs(log_group, filter_pattern)
         return "ERROR: AWS credentials not configured"
     try:
         logs = _client("logs", user_id, deployment_id=deployment_id)
@@ -80,8 +76,6 @@ def query_metrics(
     """dimensions_json: JSON array like '[{"Name": "InstanceId", "Value": "i-123"}]'."""
     cfg = _config(user_id, deployment_id=deployment_id)
     if not (cfg["access_key_id"] and cfg["secret_access_key"]):
-        if users.get_demo_mode(user_id):
-            return demo_data.aws_cloudwatch_metrics(namespace, metric_name)
         return "ERROR: AWS credentials not configured"
     try:
         dimensions = json.loads(dimensions_json)

@@ -34,14 +34,14 @@ ALTER TABLE users ALTER COLUMN password_hash DROP NOT NULL;
 ALTER TABLE users ADD COLUMN IF NOT EXISTS email TEXT UNIQUE;
 ALTER TABLE users ADD COLUMN IF NOT EXISTS google_id TEXT UNIQUE;
 ALTER TABLE users ADD COLUMN IF NOT EXISTS monthly_limit_usd DOUBLE PRECISION;
-ALTER TABLE users ADD COLUMN IF NOT EXISTS demo_mode BOOLEAN NOT NULL DEFAULT false;
 ALTER TABLE users ADD COLUMN IF NOT EXISTS tos_accepted_at TIMESTAMPTZ;
 ALTER TABLE users ADD COLUMN IF NOT EXISTS tos_version INTEGER;
+ALTER TABLE users DROP COLUMN IF EXISTS demo_mode;
 """
 
 _COLUMNS = [
     "id", "username", "password_hash", "created_at", "email", "google_id", "monthly_limit_usd",
-    "demo_mode", "tos_accepted_at", "tos_version",
+    "tos_accepted_at", "tos_version",
 ]
 
 _hasher = PasswordHasher()
@@ -148,21 +148,6 @@ def accept_terms(user_id: int) -> None:
 def update_monthly_limit(user_id: int, limit_usd: float | None) -> None:
     with _connect() as conn:
         conn.execute("UPDATE users SET monthly_limit_usd = %s WHERE id = %s", (limit_usd, user_id))
-
-
-def get_demo_mode(user_id: int) -> bool:
-    """Whether tools/*.py should fall back to agent/demo_data.py's canned
-    responses for any integration this user hasn't actually configured --
-    lets a live demo show the full tool belt without real credentials.
-    Never affects an integration that *is* configured; real credentials
-    always win."""
-    user = get_user_by_id(user_id)
-    return bool(user and user.get("demo_mode"))
-
-
-def update_demo_mode(user_id: int, enabled: bool) -> None:
-    with _connect() as conn:
-        conn.execute("UPDATE users SET demo_mode = %s WHERE id = %s", (enabled, user_id))
 
 
 def verify_password(user: dict, password: str) -> bool:

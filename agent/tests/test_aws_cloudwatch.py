@@ -14,13 +14,6 @@ def test_query_logs_requires_credentials(monkeypatch):
     assert aws.query_logs("group", "pattern", 1).startswith("ERROR")
 
 
-def test_query_logs_returns_demo_data_when_demo_mode_enabled(monkeypatch):
-    monkeypatch.setattr(aws, "AWS_ACCESS_KEY_ID", "")
-    monkeypatch.setattr(aws.users, "get_demo_mode", lambda user_id: True)
-    result = aws.query_logs("group", "pattern", 1)
-    assert "DEMO DATA" in result
-
-
 def test_query_logs_formats_events(monkeypatch):
     _configure(monkeypatch)
     fake_logs_client = MagicMock()
@@ -54,13 +47,6 @@ def test_query_logs_handles_exception(monkeypatch):
 def test_query_metrics_requires_credentials(monkeypatch):
     monkeypatch.setattr(aws, "AWS_ACCESS_KEY_ID", "")
     assert aws.query_metrics("AWS/EC2", "CPUUtilization", 1).startswith("ERROR")
-
-
-def test_query_metrics_returns_demo_data_when_demo_mode_enabled(monkeypatch):
-    monkeypatch.setattr(aws, "AWS_ACCESS_KEY_ID", "")
-    monkeypatch.setattr(aws.users, "get_demo_mode", lambda user_id: True)
-    result = aws.query_metrics("AWS/EC2", "CPUUtilization", 1)
-    assert "DEMO DATA" in result
 
 
 def test_query_metrics_invalid_dimensions_json(monkeypatch):

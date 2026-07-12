@@ -6,7 +6,7 @@ import settings
 def test_get_profile_reports_account_and_budget(monkeypatch):
     monkeypatch.setattr(
         settings.users, "get_user_by_id",
-        lambda user_id: {"username": "alice", "email": "alice@example.com", "google_id": None, "demo_mode": False},
+        lambda user_id: {"username": "alice", "email": "alice@example.com", "google_id": None},
     )
     monkeypatch.setattr(
         settings.billing, "check_budget",
@@ -20,7 +20,6 @@ def test_get_profile_reports_account_and_budget(monkeypatch):
         "sign_in_method": "password",
         "monthly_limit_usd": 10.0,
         "spent_this_month_usd": 1.5,
-        "demo_mode": False,
     }
 
 
@@ -68,27 +67,3 @@ def test_set_monthly_limit_rejects_negative_value():
         settings.set_monthly_limit(1, -1.0)
 
 
-def test_get_profile_reports_demo_mode_when_enabled(monkeypatch):
-    monkeypatch.setattr(
-        settings.users, "get_user_by_id",
-        lambda user_id: {"username": "alice", "email": None, "google_id": None, "demo_mode": True},
-    )
-    monkeypatch.setattr(
-        settings.billing, "check_budget",
-        lambda user_id: {"allowed": True, "spent_usd": 0.0, "limit_usd": None},
-    )
-
-    assert settings.get_profile(1)["demo_mode"] is True
-
-
-def test_set_demo_mode_delegates_to_users(monkeypatch):
-    captured = {}
-    monkeypatch.setattr(
-        settings.users, "update_demo_mode",
-        lambda user_id, enabled: captured.update(user_id=user_id, enabled=enabled),
-    )
-    monkeypatch.setattr(settings, "get_profile", lambda user_id: {"demo_mode": True})
-
-    result = settings.set_demo_mode(1, True)
-    assert captured == {"user_id": 1, "enabled": True}
-    assert result == {"demo_mode": True}
