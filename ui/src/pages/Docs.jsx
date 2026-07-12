@@ -3,6 +3,7 @@ import Icon from "../components/Icon";
 
 const SECTIONS = [
   { id: "overview", label: "Overview" },
+  { id: "project-structure", label: "Project structure" },
   { id: "getting-started", label: "Getting started" },
   { id: "clients", label: "Clients & deployments" },
   { id: "integrations", label: "Integrations" },
@@ -60,6 +61,39 @@ export default function Docs() {
             a structured root-cause postmortem. Nothing is posted back to a ticket without an operator approving it
             first.
           </p>
+        </div>
+
+        <div id="project-structure">
+          <h3 style={{ fontSize: 16, marginBottom: 6 }}>Project structure</h3>
+          <ul style={{ margin: 0, paddingLeft: 20, display: "flex", flexDirection: "column", gap: 8 }}>
+            <li>
+              <code>agent/</code> — Python 3.12 FastAPI backend. <code>main.py</code> wires up routing, session
+              auth, and the built UI's static mount; <code>routes/</code> holds the API route handlers;{" "}
+              <code>tools/</code> has one module per integration (Jira, GitHub Actions, Azure DevOps, Azure
+              Monitor, AWS CloudWatch, Prometheus, Loki, Zendesk); <code>rag/</code> handles runbook ingestion and
+              retrieval; <code>prompts/</code> holds the agent's system prompt; <code>evals/</code> scores
+              investigation quality against the demo app; <code>tests/</code> is the pytest suite.
+            </li>
+            <li>
+              <code>ui/</code> — the React (Vite) operator console. <code>src/pages/</code> is one file per route,{" "}
+              <code>src/components/</code> holds shared UI pieces, <code>src/context/</code> holds the auth/toast
+              providers, and <code>src/lib/</code> / <code>src/hooks/</code> hold client-side helpers.
+            </li>
+            <li>
+              <code>docs/</code> — this documentation's companions: a glossary, deployment runbook, legal docs, and
+              a running log of non-obvious design decisions.
+            </li>
+            <li>
+              <code>scripts/</code> — setup and deploy tooling: <code>setup.sh</code> bootstraps <code>.env</code>,{" "}
+              <code>deploy/</code> holds the production deploy scripts, <code>clinicops/</code> holds the check-in
+              heartbeat used to track a monitored deployment's version.
+            </li>
+            <li>
+              <code>docker-compose.yml</code> / <code>docker-compose.prod.yml</code> — the local dev stack
+              (includes a demo app and local Prometheus/Loki for testing) versus the production stack (just the
+              agent, its own Postgres, and self-hosted Langfuse for tracing).
+            </li>
+          </ul>
         </div>
 
         <div id="getting-started">
