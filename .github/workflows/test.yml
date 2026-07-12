@@ -11,6 +11,22 @@ jobs:
     defaults:
       run:
         working-directory: agent
+    services:
+      # Matches docker-compose.yml's postgres service (same image, same
+      # 5533 host port) -- agent/*.py modules default DATABASE_URL to
+      # postgresql://postgres:postgres@localhost:5533/demo when unset, so
+      # tests that touch those modules need something listening there.
+      postgres:
+        image: pgvector/pgvector:pg16
+        env:
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: demo
+        ports: ["5533:5432"]
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
     steps:
       - uses: actions/checkout@v4
 
