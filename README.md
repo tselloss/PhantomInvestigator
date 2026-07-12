@@ -4,17 +4,17 @@
 [![evals](https://github.com/tselloss/PhantomInvestigator/actions/workflows/evals.yml/badge.svg)](https://github.com/tselloss/PhantomInvestigator/actions/workflows/evals.yml)
 [![Buy Me A Coffee](https://cdn.buymeacoffee.com/buttons/v2/default-yellow.png)](https://buymeacoffee.com/tsellosskr)
 
-> An AI agent that debugs production incidents like an SRE: reads the Jira ticket, checks recent CI/deploy history, queries metrics and logs, cross-references past postmortems (RAG), and writes a root-cause report — every step traced.
+> An AI agent that debugs production incidents like an SRE: reads the Jira/Azure DevOps ticket, checks recent CI/deploy history, queries metrics and logs, cross-references past postmortems (RAG), and writes a root-cause report — every step traced.
 
-Built on the same agent architecture as [AIInvestigator](https://github.com/tselloss/AIInvestigator) (its demo-app/Prometheus/Loki proving ground for the agent loop, kept here for regression testing), extended to investigate **real** production incidents sourced from Jira and GitHub Actions — triggered automatically via webhooks, with results posted back to the ticket.
+Built on the same agent architecture as [AIInvestigator](https://github.com/tselloss/AIInvestigator) (its demo-app/Prometheus/Loki proving ground for the agent loop, kept here for regression testing), extended to investigate **real** production incidents sourced from Jira, Azure DevOps, and GitHub Actions — triggered automatically via webhooks, with results posted back to the ticket.
 
 ## How it works
 
-1. A Jira ticket gets created/labeled, or a GitHub Actions workflow run fails.
-2. A webhook fires (`/webhooks/jira` or `/webhooks/github`), which kicks off an investigation in the background.
+1. A Jira or Azure DevOps ticket gets created/labeled, or a GitHub Actions workflow run fails.
+2. A webhook fires (`/webhooks/jira`, `/webhooks/azure_devops`, or `/webhooks/github`), which kicks off an investigation in the background.
 3. The agent runs autonomously: reads the triggering ticket or workflow run, checks recent deploy diffs (real GitHub compare API), queries metrics/logs, and searches a runbook knowledge base (hybrid vector + full-text RAG).
-4. It returns a structured root-cause postmortem — title, root cause, confidence, timeline, cited evidence, suggested fix, similar past incidents.
-5. For webhook-triggered runs, the Jira comment isn't posted unattended: it's queued as a **pending action** for an operator to approve or dismiss from the UI (see Operator console below) — a human-in-the-loop gate on the one externally-visible write the agent can make. Every step (each LLM call, each tool call) is traced in Langfuse, with per-model USD cost estimated and capped per run.
+4. It returns a structured root-cause postmortem — title, root cause, confidence, timeline, cited evidence, suggested fix, similar past incidents — and, on deployments that opt in, a proposed code fix as a set of file diffs.
+5. Nothing externally-visible fires unattended: the ticket comment is queued as a **pending action**, and a proposed fix is queued as a **pending fix action** (opened as a GitHub PR only once approved) for an operator to approve or dismiss from the UI (see Operator console below) — a human-in-the-loop gate on every write the agent can make. Every step (each LLM call, each tool call) is traced in Langfuse, with per-model USD cost estimated and capped per run against a self-service monthly spend cap.
 
 The demo-app + Prometheus/Loki/Grafana stack from AIInvestigator stays in place — useful for exercising the agent loop against synthetic faults without needing live prod access.
 
@@ -48,15 +48,17 @@ The demo-app + Prometheus/Loki/Grafana stack from AIInvestigator stays in place 
 |---|---|---|
 | Agent + demo service | Python 3.12 + FastAPI | The de-facto AI engineering stack |
 | LLM | Anthropic API (tool use), Haiku 4.5 | First-class function calling; cheap enough to run repeatedly |
-| Ticket source | Jira Cloud REST API | Real incidents start life as tickets |
+| Ticket source | Jira Cloud REST API + Azure DevOps (work items, WIQL search, commits/builds) | Real incidents start life as tickets |
 | CI/deploy source | GitHub Actions API + compare API | Real workflow failures and real deploy diffs |
+| Support/bug tracking | Zendesk search API | Feeds the per-client aggregated bugs/tasks dashboard alongside Jira/Azure DevOps |
 | Azure metrics/logs | Log Analytics (KQL) + Azure Monitor Metrics, AAD service principal | For incidents on Azure-hosted infra |
 | AWS metrics/logs | CloudWatch Logs + Metrics, access-key auth via boto3 | For incidents on AWS-hosted infra |
 | RAG | PostgreSQL + pgvector + Voyage AI, hybrid search (vector + full-text via RRF) | Boring, production-real, no bespoke vector-DB infra |
 | Metrics/Logs (optional) | Prometheus / Loki + promtail | Kept from AIInvestigator for synthetic-fault testing |
 | LLM tracing | Langfuse (self-hosted) | Full trace tree: spans, generations, tool calls, cost per run |
 | Cost control | Per-model USD pricing table, estimated per call, hard cap per investigation | Stops a runaway loop from burning budget; real cost-per-run instead of just token counts |
-| Human-in-the-loop | Pending-action queue for webhook-triggered Jira comments, approve/dismiss from the UI | The one externally-visible write the agent makes shouldn't fire unattended |
+| Human-in-the-loop | Pending-action queue for ticket comments and proposed-fix PRs, approve/dismiss from the UI | No externally-visible write fires unattended |
+| Auto-fix proposals | GitHub PR built from the postmortem's proposed fix, opt-in per deployment (`allowed_base_branches`), operator-approved | Turns a root-cause fix into a reviewable diff without ever merging on its own |
 | Evals | Custom harness + LLM-as-judge | Measured accuracy + quality on injected faults, not vibes |
 | Tests | pytest + respx, mocked, run on every push/PR via GitHub Actions | Tool-module request/response handling + webhook auth logic |
 | UI | React (Vite) + react-router | Multi-page operator console — see Operator console below |
@@ -70,15 +72,18 @@ The UI (`ui/`) is a multi-page app behind a login:
 | Route | Page |
 |---|---|
 | `/` | Public landing page (free, self-hosted, bring your own AI key) |
-| `/login` | Sign in |
+| `/login` | Sign in (username/password or "Continue with Google") |
 | `/register` | Create an account |
+| `/terms` | Terms of Service (acceptance is server-enforced before any other page loads) |
+| `/docs` | In-app documentation |
 | `/dashboard` | Integration health, 7-day stats, recent investigations |
-| `/investigate` | Manual trigger + live SSE investigation view |
-| `/investigations` | Full history, filterable by source/status, paginated |
-| `/investigations/:id` | Full postmortem, source links, re-run, mark reviewed, approve/dismiss a pending Jira post |
+| `/investigate` | Manual trigger + live SSE investigation view, plus demo-app fault injection/eval harness |
+| `/investigations` | Full history, filterable by source/status/deployment, paginated |
+| `/investigations/:id` | Full postmortem, source links, re-run, mark reviewed, approve/dismiss a pending Jira/Azure DevOps comment or fix PR |
+| `/clients` | Client/deployment registry (create, edit, archive) + per-client aggregated bugs/tasks dashboard (Jira/Azure DevOps/Zendesk) |
 | `/runbooks` | Ingested runbooks + re-ingest trigger |
-| `/settings/integrations` | Which of Jira/GitHub/Azure/AWS/Prometheus/Loki are configured + live "test connection" |
-| `/demo` | demo-app fault injection + eval harness trigger/viewer |
+| `/settings/profile` | Monthly AI spend cap and account settings |
+| `/settings/integrations` | Which of Jira/GitHub/Azure DevOps/Zendesk/Azure/AWS/Prometheus/Loki are configured (global and per-client) + live "test connection" |
 
 All JSON API routes live under `/api/*` and are gated by session auth (checked by `AuthMiddleware` in `agent/main.py`); `/health`, `/webhooks/*`, and `/auth/*` are intentionally public — webhooks authenticate via their own secret/signature, and the SPA shell + `/auth/*` have to be reachable before a session exists.
 
@@ -137,8 +142,8 @@ issue created (and/or labeled, depending on how you want to scope triggers).
 `https://<tunnel>/webhooks/github`, content type `application/json`, secret =
 `GITHUB_WEBHOOK_SECRET`, events = "Workflow runs".
 
-For anything beyond local testing, a stable public endpoint (small VPS) is
-needed instead of a tunnel — see Build status below.
+For anything beyond local testing, a stable public endpoint is needed instead
+of a tunnel — see phase X in Build status below.
 
 ## Build status
 
@@ -152,7 +157,7 @@ needed instead of a tunnel — see Build status below.
 | E | React operator UI | ✅ |
 | F | Azure Monitor + AWS CloudWatch tools | ✅ code complete, needs your Azure/AWS credentials to test live |
 | G | Investigation quality/reliability (calibration, cross-source correlation, retries) | ✅ |
-| H | Test coverage (pytest + respx, tool modules + webhook auth) | ✅ 242 passing, run in CI on every push/PR |
+| H | Test coverage (pytest + respx, tool modules + webhook auth) | ✅ 430 passing, run in CI on every push/PR |
 | I | Multi-page operator console: nav shell + routing | ✅ |
 | K | Investigation history + detail pages (filters, pagination, mark reviewed, re-run) | ✅ |
 | L | Dashboard (integration health, 7-day stats, recent investigations) | ✅ |
@@ -161,14 +166,22 @@ needed instead of a tunnel — see Build status below.
 | J | Login-gated access (session cookie, real per-user accounts, register/login) | ✅ |
 | O | Per-user data isolation (runbooks, investigations, credentials) + BYOK AI provider | ✅ |
 | P | Operator-approval gate for Jira posts (human-in-the-loop) + per-model cost tracking/budget cap | ✅ |
-
-Needs a stable public endpoint (small VPS) instead of a tunnel for anything beyond local testing — not done in this pass.
+| Q | Client/deployment registry with edit + archive (soft-delete), investigations filterable per deployment | ✅ |
+| R | Per-client integration credential overrides (all integrations, over a shared global default) | ✅ |
+| S | Azure DevOps integration (work items, webhook, commits/builds/WIQL search) + Zendesk ticket search | ✅ |
+| T | Per-client aggregated bugs/tasks dashboard (Jira + Azure DevOps + Zendesk) | ✅ |
+| U | Auto-fix PR proposals — opt-in per deployment, operator-approved before opening | ✅ |
+| V | Terms of Service acceptance gate (server-enforced) + in-app documentation page | ✅ |
+| W | Self-service monthly AI spend cap (Profile settings) | ✅ |
+| X | Production deployment — live at phantominvestigator.com | ✅ manual SSH/Docker Compose deploy, see `docs/deployment.md`; no CI/CD deploy pipeline yet |
 
 ## Project docs
 
 - **docs/GLOSSARY.md** — every AI-engineering term you'll meet, explained
 - **docs/TIPS.md** — hard-won tips & tricks
 - **docs/decisions.md** — running log of non-obvious design decisions and why (carried over from AIInvestigator, extended here)
+- **docs/deployment.md** — manual deploy runbook for the production instance
+- **docs/legal/** — Terms of Service, Privacy Policy, and Data Processing Agreement (also served in-app at `/terms` and linked from `/docs`)
 
 ## License
 
