@@ -56,6 +56,17 @@ def test_resolve_ai_config_no_key_configured_anywhere(monkeypatch):
     assert cfg["api_key"] == ""
 
 
+def test_resolve_ai_config_treats_unfilled_placeholder_as_not_configured(monkeypatch):
+    """.env.example ships ANTHROPIC_API_KEY=sk-ant-... as a placeholder --
+    an unedited .env must not read as a real, configured key."""
+    _clear_ai_env(monkeypatch)
+    monkeypatch.setattr(providers.integration_credentials, "get_credentials", lambda user_id, name: None)
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-ant-...")
+
+    cfg = providers.resolve_ai_config(1)
+    assert cfg["api_key"] == ""
+
+
 # --- OpenAIProvider message/tool translation (pure functions, no real API calls) ---
 
 def test_to_openai_tool_translates_anthropic_schema():

@@ -1,5 +1,35 @@
+import httpx
+import respx
+
 import settings
-from tools import azure_devops, jira, zendesk
+from tools import azure_devops, jira, loki, prometheus, zendesk
+
+
+@respx.mock
+def test_configured_reports_prometheus_unreachable_as_not_configured(monkeypatch):
+    """docker-compose.prod.yml doesn't run a local prometheus/loki at all --
+    the default URL resolving to *something* isn't the same as it actually
+    being reachable."""
+    monkeypatch.setattr(prometheus, "_config", lambda user_id, deployment_id=None, client_id=None: {"url": "http://prom.local"})
+    respx.get("http://prom.local/-/ready").mock(side_effect=httpx.ConnectError("nope"))
+
+    assert settings._configured(1, "prometheus") is False
+
+
+@respx.mock
+def test_configured_reports_prometheus_reachable_as_configured(monkeypatch):
+    monkeypatch.setattr(prometheus, "_config", lambda user_id, deployment_id=None, client_id=None: {"url": "http://prom.local"})
+    respx.get("http://prom.local/-/ready").mock(return_value=httpx.Response(200))
+
+    assert settings._configured(1, "prometheus") is True
+
+
+@respx.mock
+def test_configured_reports_loki_unreachable_as_not_configured(monkeypatch):
+    monkeypatch.setattr(loki, "_config", lambda user_id, deployment_id=None, client_id=None: {"url": "http://loki.local"})
+    respx.get("http://loki.local/ready").mock(side_effect=httpx.ConnectError("nope"))
+
+    assert settings._configured(1, "loki") is False
 
 
 def test_client_integration_status_reports_own_override(monkeypatch):

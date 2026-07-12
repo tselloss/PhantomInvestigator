@@ -16,6 +16,24 @@ from tools import aws_cloudwatch, azure_devops, azure_monitor, github_actions, j
 
 INTEGRATIONS = ["jira", "github", "azure", "aws", "prometheus", "loki", "azure_devops", "zendesk"]
 
+_READY_PATH = {"prometheus": "/-/ready", "loki": "/ready"}
+
+
+def _reachable(name: str, url: str) -> bool:
+    """prometheus/loki have no credentials to check presence of -- just a
+    URL, which always resolves to *something* (falls back to the
+    docker-compose service name or localhost) whether or not that target
+    actually exists. A short-timeout live check is the only way to tell
+    "configured" from "still pointing at a dev-only default with nothing
+    listening" (e.g. docker-compose.prod.yml doesn't run these services at
+    all -- see its header comment)."""
+    try:
+        resp = httpx.get(f"{url}{_READY_PATH[name]}", timeout=2.0)
+        resp.raise_for_status()
+        return True
+    except httpx.HTTPError:
+        return False
+
 # The AI provider that powers the investigation loop itself (bring-your-own-
 # key) is deliberately kept out of INTEGRATIONS/EDITABLE_FIELDS above: that
 # list also drives the per-client Settings UI (client_integration_status
@@ -116,8 +134,10 @@ def _configured(user_id: int, name: str) -> bool:
     if name == "aws":
         cfg = aws_cloudwatch._config(user_id)
         return bool(cfg["access_key_id"] and cfg["secret_access_key"])
-    if name in ("prometheus", "loki"):
-        return True  # always has a default URL, pointed at the local compose service
+    if name == "prometheus":
+        return _reachable("prometheus", prometheus._config(user_id)["url"])
+    if name == "loki":
+        return _reachable("loki", loki._config(user_id)["url"])
     if name == "azure_devops":
         cfg = azure_devops._config(user_id)
         return bool(cfg["organization"] and cfg["project"] and cfg["pat"])
@@ -252,8 +272,10 @@ def _client_configured(client_id: int, user_id: int, name: str) -> bool:
     if name == "aws":
         cfg = aws_cloudwatch._config(user_id, client_id=client_id)
         return bool(cfg["access_key_id"] and cfg["secret_access_key"])
-    if name in ("prometheus", "loki"):
-        return True
+    if name == "prometheus":
+        return _reachable("prometheus", prometheus._config(user_id, client_id=client_id)["url"])
+    if name == "loki":
+        return _reachable("loki", loki._config(user_id, client_id=client_id)["url"])
     if name == "azure_devops":
         cfg = azure_devops._config(user_id, client_id=client_id)
         return bool(cfg["organization"] and cfg["project"] and cfg["pat"])

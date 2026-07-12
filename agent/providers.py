@@ -39,7 +39,12 @@ def resolve_ai_config(user_id: int) -> dict:
 
     api_key = override.get("api_key") or os.environ.get("AI_API_KEY") or ""
     if not api_key and provider == "anthropic":
-        api_key = os.environ.get("ANTHROPIC_API_KEY", "")
+        env_key = os.environ.get("ANTHROPIC_API_KEY", "")
+        # .env.example ships ANTHROPIC_API_KEY=sk-ant-... as a placeholder,
+        # not a real value -- an unedited .env would otherwise read as
+        # "configured" (see scripts/setup.sh's own is_blank() for the same
+        # "..." convention).
+        api_key = env_key if not env_key.endswith("...") else ""
 
     model = override.get("model") or os.environ.get("AI_MODEL") or ""
     if not model and provider == "anthropic":
