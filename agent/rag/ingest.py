@@ -42,6 +42,11 @@ CREATE TABLE IF NOT EXISTS runbook_chunks (
 );
 """
 
+# Added after the table already shipped -- existing rows backfill to the
+# migration's run time, which is the best available approximation of when
+# they were actually ingested.
+MIGRATE_SQL = "ALTER TABLE runbook_chunks ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ NOT NULL DEFAULT now();"
+
 def chunk_markdown(text: str, title: str) -> list[str]:
     sections = re.split(r"(?=^## )", text, flags=re.MULTILINE)
     return [f"# {title}\n\n{s.strip()}" for s in sections if s.strip()]
@@ -62,6 +67,7 @@ def main(owner_user_id: int) -> int:
         conn.execute("CREATE EXTENSION IF NOT EXISTS vector")
         register_vector(conn)
         conn.execute(CREATE_TABLE_SQL)
+        conn.execute(MIGRATE_SQL)
         conn.execute(
             "CREATE INDEX IF NOT EXISTS runbook_chunks_embedding_idx "
             "ON runbook_chunks USING hnsw (embedding vector_cosine_ops)"
@@ -99,19 +105,27 @@ def main(owner_user_id: int) -> int:
 
 
 def list_runbooks(owner_user_id: int) -> list[dict]:
-    """Distinct titles + chunk counts. Falls back to the raw markdown filenames
-    if nothing has been ingested into Postgres yet."""
+    """Distinct titles + chunk counts + last-ingested time. Falls back to the
+    raw markdown filenames if nothing has been ingested into Postgres yet."""
     try:
-        with psycopg.connect(DATABASE_URL, connect_timeout=10) as conn:
+        with psycopg.connect(DATABASE_URL, connect_timeout=10, autocommit=True) as conn:
+            conn.execute(MIGRATE_SQL)
             rows = conn.execute(
-                "SELECT title, COUNT(*) FROM runbook_chunks WHERE owner_user_id = %s GROUP BY title ORDER BY title",
+                "SELECT title, COUNT(*), MAX(created_at) FROM runbook_chunks "
+                "WHERE owner_user_id = %s GROUP BY title ORDER BY title",
                 (owner_user_id,),
             ).fetchall()
         if rows:
-            return [{"title": title, "chunk_count": count} for title, count in rows]
+            return [
+                {"title": title, "chunk_count": count, "last_ingested_at": last_ingested.isoformat()}
+                for title, count, last_ingested in rows
+            ]
     except Exception:
         pass
-    return [{"title": path.stem.replace("-", " "), "chunk_count": 0} for path in sorted(RUNBOOKS_DIR.glob("*.md"))]
+    return [
+        {"title": path.stem.replace("-", " "), "chunk_count": 0, "last_ingested_at": None}
+        for path in sorted(RUNBOOKS_DIR.glob("*.md"))
+    ]
 
 
 if __name__ == "__main__":
