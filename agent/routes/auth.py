@@ -17,7 +17,7 @@ from urllib.parse import urlencode
 import httpx
 import jwt
 import psycopg
-from fastapi import APIRouter, Depends, HTTPException, Request, Response
+from fastapi import APIRouter, HTTPException, Request, Response
 from fastapi.responses import RedirectResponse
 from pydantic import BaseModel
 
@@ -56,6 +56,7 @@ class LoginRequest(BaseModel):
 class RegisterRequest(BaseModel):
     username: str
     password: str
+    accept_terms: bool = False
 
 
 def create_token(user_id: int, username: str) -> str:
@@ -106,8 +107,10 @@ def register(req: RegisterRequest, response: Response):
     username = req.username.strip()
     if not username or not req.password:
         raise HTTPException(400, "username and password are required")
+    if not req.accept_terms:
+        raise HTTPException(400, "you must accept the Terms of Service to create an account")
     try:
-        user = users.create_user(username, req.password)
+        user = users.create_user(username, req.password, tos_accepted=True)
     except psycopg.errors.UniqueViolation:
         raise HTTPException(409, "username already taken")
 
@@ -140,10 +143,29 @@ def logout(response: Response):
 
 @router.get("/me")
 def me(request: Request):
-    user = verify_session_cookie(request.cookies.get(SESSION_COOKIE))
+    session = verify_session_cookie(request.cookies.get(SESSION_COOKIE))
+    if not session:
+        raise HTTPException(401, "not authenticated")
+    user = users.get_user_by_id(session["user_id"])
     if not user:
         raise HTTPException(401, "not authenticated")
-    return {"id": user["user_id"], "username": user["username"]}
+    return {"id": user["id"], "username": user["username"], "tos_accepted": bool(user.get("tos_accepted_at"))}
+
+
+@router.post("/accept-terms")
+def accept_terms(request: Request):
+    """Called by the first-use TermsGate popup -- mainly for Google
+    sign-ins, whose account creation has no registration form to put a
+    Terms-of-Service checkbox on (see /register's accept_terms field for
+    the password-account path). Verifies the session cookie directly rather
+    than depending on get_current_user()/request.state.user, since those
+    are only populated by AuthMiddleware for /api/* paths -- /auth/* has to
+    stay reachable independent of that middleware."""
+    session = verify_session_cookie(request.cookies.get(SESSION_COOKIE))
+    if not session:
+        raise HTTPException(401, "not authenticated")
+    users.accept_terms(session["user_id"])
+    return {"ok": True}
 
 
 @router.get("/google/status")

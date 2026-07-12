@@ -8,6 +8,7 @@ routes/auth.py's /auth/google/* endpoints) -- those accounts have no
 password_hash, and password accounts that later sign in with Google get
 their google_id linked once Google confirms the same verified email."""
 import os
+from datetime import datetime, timezone
 
 import psycopg
 from argon2 import PasswordHasher
@@ -27,11 +28,12 @@ ALTER TABLE users ADD COLUMN IF NOT EXISTS email TEXT UNIQUE;
 ALTER TABLE users ADD COLUMN IF NOT EXISTS google_id TEXT UNIQUE;
 ALTER TABLE users ADD COLUMN IF NOT EXISTS monthly_limit_usd DOUBLE PRECISION;
 ALTER TABLE users ADD COLUMN IF NOT EXISTS demo_mode BOOLEAN NOT NULL DEFAULT false;
+ALTER TABLE users ADD COLUMN IF NOT EXISTS tos_accepted_at TIMESTAMPTZ;
 """
 
 _COLUMNS = [
     "id", "username", "password_hash", "created_at", "email", "google_id", "monthly_limit_usd",
-    "demo_mode",
+    "demo_mode", "tos_accepted_at",
 ]
 
 _hasher = PasswordHasher()
@@ -47,16 +49,19 @@ def _row_to_dict(row) -> dict:
     return dict(zip(_COLUMNS, row))
 
 
-def create_user(username: str, password: str) -> dict:
+def create_user(username: str, password: str, tos_accepted: bool = False) -> dict:
     """Raises psycopg.errors.UniqueViolation if username is taken -- callers
-    (routes/auth.py) turn that into a 409, not a 500."""
+    (routes/auth.py) turn that into a 409, not a 500. tos_accepted is set by
+    the caller once it has confirmed the registration form's Terms of
+    Service checkbox was checked -- it stamps tos_accepted_at immediately so
+    this account never sees the first-use TermsGate popup."""
     password_hash = _hasher.hash(password)
     with _connect() as conn:
         row = conn.execute(
-            "INSERT INTO users (username, password_hash) VALUES (%s, %s) RETURNING {}".format(
+            "INSERT INTO users (username, password_hash, tos_accepted_at) VALUES (%s, %s, %s) RETURNING {}".format(
                 ", ".join(_COLUMNS)
             ),
-            (username, password_hash),
+            (username, password_hash, datetime.now(timezone.utc) if tos_accepted else None),
         ).fetchone()
     return _row_to_dict(row)
 
@@ -114,6 +119,18 @@ def create_google_user(username: str, email: str, google_id: str) -> dict:
 def link_google_id(user_id: int, google_id: str) -> None:
     with _connect() as conn:
         conn.execute("UPDATE users SET google_id = %s WHERE id = %s", (google_id, user_id))
+
+
+def accept_terms(user_id: int) -> None:
+    """Stamps tos_accepted_at the first time a user confirms the Terms of
+    Service popup -- used for Google sign-ins, which have no registration
+    form to put a checkbox on. COALESCE keeps the original acceptance time
+    if this is ever called again."""
+    with _connect() as conn:
+        conn.execute(
+            "UPDATE users SET tos_accepted_at = COALESCE(tos_accepted_at, now()) WHERE id = %s",
+            (user_id,),
+        )
 
 
 def update_monthly_limit(user_id: int, limit_usd: float | None) -> None:

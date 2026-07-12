@@ -22,11 +22,14 @@ class _FakeConn:
 
     def execute(self, sql, params=None):
         sql = " ".join(sql.split())
-        if sql.startswith("INSERT INTO users (username, password_hash)"):
-            username, password_hash = params
+        if sql.startswith("INSERT INTO users (username, password_hash, tos_accepted_at)"):
+            username, password_hash, tos_accepted_at = params
             if username in self.table:
                 raise psycopg.errors.UniqueViolation("duplicate username")
-            row = (self._next_id, username, password_hash, "2024-01-01T00:00:00Z", None, None, None, False)
+            row = (
+                self._next_id, username, password_hash, "2024-01-01T00:00:00Z", None, None, None, False,
+                tos_accepted_at,
+            )
             self.table[username] = row
             self._next_id += 1
             self._result = row
@@ -34,7 +37,7 @@ class _FakeConn:
             username, email, google_id = params
             if username in self.table:
                 raise psycopg.errors.UniqueViolation("duplicate username")
-            row = (self._next_id, username, None, "2024-01-01T00:00:00Z", email, google_id, None, False)
+            row = (self._next_id, username, None, "2024-01-01T00:00:00Z", email, google_id, None, False, None)
             self.table[username] = row
             self._next_id += 1
             self._result = row
@@ -56,7 +59,14 @@ class _FakeConn:
             enabled, user_id = params
             for uname, row in self.table.items():
                 if row[0] == user_id:
-                    self.table[uname] = row[:7] + (enabled,)
+                    self.table[uname] = row[:7] + (enabled,) + row[8:]
+                    break
+            self._result = None
+        elif sql.startswith("UPDATE users SET tos_accepted_at"):
+            (user_id,) = params
+            for uname, row in self.table.items():
+                if row[0] == user_id:
+                    self.table[uname] = row[:8] + (row[8] or "2024-01-01T00:00:00Z",)
                     break
             self._result = None
         elif "FROM users WHERE username" in sql:
@@ -211,4 +221,37 @@ def test_update_demo_mode_does_not_disturb_monthly_limit(fake_db):
     users.update_demo_mode(created["id"], True)
     fetched = users.get_user_by_id(created["id"])
     assert fetched["monthly_limit_usd"] == 10.5
+    assert fetched["demo_mode"] is True
+
+
+def test_create_user_leaves_tos_accepted_at_none_by_default(fake_db):
+    created = users.create_user("judy", "hunter2")
+    assert created["tos_accepted_at"] is None
+
+
+def test_create_user_stamps_tos_accepted_at_when_requested(fake_db):
+    created = users.create_user("kevin", "hunter2", tos_accepted=True)
+    assert created["tos_accepted_at"] is not None
+
+
+def test_create_google_user_leaves_tos_accepted_at_none(fake_db):
+    created = users.create_google_user("laura", "laura@example.com", "g-5")
+    assert created["tos_accepted_at"] is None
+
+
+def test_accept_terms_stamps_tos_accepted_at(fake_db):
+    created = users.create_user("mallory", "hunter2")
+    assert created["tos_accepted_at"] is None
+
+    users.accept_terms(created["id"])
+    fetched = users.get_user_by_id(created["id"])
+    assert fetched["tos_accepted_at"] is not None
+
+
+def test_accept_terms_does_not_disturb_demo_mode(fake_db):
+    created = users.create_user("nolan", "hunter2")
+    users.update_demo_mode(created["id"], True)
+
+    users.accept_terms(created["id"])
+    fetched = users.get_user_by_id(created["id"])
     assert fetched["demo_mode"] is True

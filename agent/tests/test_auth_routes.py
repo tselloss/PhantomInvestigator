@@ -21,24 +21,38 @@ def client():
 
 
 def test_register_creates_user_and_sets_session_cookie(monkeypatch, client):
-    monkeypatch.setattr(users, "create_user", lambda username, password: {"id": 1, "username": username})
-    resp = client.post("/auth/register", json={"username": "alice", "password": "hunter2"})
+    monkeypatch.setattr(
+        users, "create_user", lambda username, password, tos_accepted=False: {"id": 1, "username": username}
+    )
+    resp = client.post(
+        "/auth/register", json={"username": "alice", "password": "hunter2", "accept_terms": True}
+    )
     assert resp.status_code == 200
     assert resp.json() == {"ok": True}
     assert "phantom_session" in resp.cookies
 
 
 def test_register_rejects_duplicate_username(monkeypatch, client):
-    def boom(username, password):
+    def boom(username, password, tos_accepted=False):
         raise psycopg.errors.UniqueViolation("duplicate username")
 
     monkeypatch.setattr(users, "create_user", boom)
-    resp = client.post("/auth/register", json={"username": "alice", "password": "hunter2"})
+    resp = client.post(
+        "/auth/register", json={"username": "alice", "password": "hunter2", "accept_terms": True}
+    )
     assert resp.status_code == 409
 
 
 def test_register_requires_non_blank_username_and_password(client):
-    resp = client.post("/auth/register", json={"username": "   ", "password": ""})
+    resp = client.post("/auth/register", json={"username": "   ", "password": "", "accept_terms": True})
+    assert resp.status_code == 400
+
+
+def test_register_requires_accept_terms(monkeypatch, client):
+    monkeypatch.setattr(
+        users, "create_user", lambda username, password, tos_accepted=False: {"id": 1, "username": username}
+    )
+    resp = client.post("/auth/register", json={"username": "alice", "password": "hunter2"})
     assert resp.status_code == 400
 
 
@@ -68,14 +82,26 @@ def test_login_rejects_unknown_username(monkeypatch, client):
 
 
 def test_me_returns_current_user_after_login(monkeypatch, client):
-    user = {"id": 5, "username": "bob", "password_hash": "hashed"}
+    user = {"id": 5, "username": "bob", "password_hash": "hashed", "tos_accepted_at": None}
     monkeypatch.setattr(users, "get_user_by_username", lambda username: user)
     monkeypatch.setattr(users, "verify_password", lambda u, p: True)
+    monkeypatch.setattr(users, "get_user_by_id", lambda user_id: user)
 
     client.post("/auth/login", json={"username": "bob", "password": "pw"})
     resp = client.get("/auth/me")
     assert resp.status_code == 200
-    assert resp.json() == {"id": 5, "username": "bob"}
+    assert resp.json() == {"id": 5, "username": "bob", "tos_accepted": False}
+
+
+def test_me_reports_tos_accepted_true_once_set(monkeypatch, client):
+    user = {"id": 5, "username": "bob", "password_hash": "hashed", "tos_accepted_at": "2026-07-11T00:00:00Z"}
+    monkeypatch.setattr(users, "get_user_by_username", lambda username: user)
+    monkeypatch.setattr(users, "verify_password", lambda u, p: True)
+    monkeypatch.setattr(users, "get_user_by_id", lambda user_id: user)
+
+    client.post("/auth/login", json={"username": "bob", "password": "pw"})
+    resp = client.get("/auth/me")
+    assert resp.json()["tos_accepted"] is True
 
 
 def test_me_requires_session(client):
@@ -94,6 +120,26 @@ def test_logout_clears_session(monkeypatch, client):
 
     me_resp = client.get("/auth/me")
     assert me_resp.status_code == 401
+
+
+def test_accept_terms_requires_session(client):
+    resp = client.post("/auth/accept-terms")
+    assert resp.status_code == 401
+
+
+def test_accept_terms_stamps_current_user(monkeypatch, client):
+    user = {"id": 5, "username": "bob", "password_hash": "hashed", "tos_accepted_at": None}
+    monkeypatch.setattr(users, "get_user_by_username", lambda username: user)
+    monkeypatch.setattr(users, "verify_password", lambda u, p: True)
+
+    calls = []
+    monkeypatch.setattr(users, "accept_terms", lambda user_id: calls.append(user_id))
+
+    client.post("/auth/login", json={"username": "bob", "password": "pw"})
+    resp = client.post("/auth/accept-terms")
+    assert resp.status_code == 200
+    assert resp.json() == {"ok": True}
+    assert calls == [5]
 
 
 def test_auth_middleware_attaches_user_to_request_state(monkeypatch, client):
