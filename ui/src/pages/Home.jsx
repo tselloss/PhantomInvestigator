@@ -118,9 +118,14 @@ export default function Home() {
       <div className="hero hero-grain">
         <div className="hero-grid">
           <div className="hero-copy">
-            <span className="brand-mark hero-mark" style={{ width: 56, height: 56 }}>
-              <Icon name="ghost" size={30} />
-            </span>
+            <div className="row" style={{ alignItems: "center", gap: 12, marginBottom: 4 }}>
+              <span className="brand-mark hero-mark" style={{ width: 56, height: 56 }}>
+                <Icon name="ghost" size={30} />
+              </span>
+              <span className="brand-shine" style={{ fontSize: 20, fontWeight: 700 }}>
+                Phantom Investigator
+              </span>
+            </div>
             <h1>
               Your AI SRE for{" "}
               <span key={wordIndex} className="kinetic-word">
