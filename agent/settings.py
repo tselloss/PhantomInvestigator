@@ -4,6 +4,7 @@ values. Every function here is scoped to the logged-in user: "global" now
 means "this user's own default across their clients", not a single
 console-wide value."""
 import os
+from datetime import datetime, timezone
 
 import httpx
 
@@ -278,6 +279,45 @@ def client_integration_status(client_id: int, user_id: int) -> list[dict]:
             "using_global_default": editable and not own_override and integration_credentials.has_override(user_id, name),
         })
     return result
+
+
+def _ticket_sort_key(item: dict) -> datetime:
+    """Jira/Azure DevOps/Zendesk each stamp "updated" in a slightly different
+    ISO 8601 flavor (with/without milliseconds, "Z" vs "+0000") -- parse
+    rather than compare as raw strings, and tolerate a missing/malformed
+    value instead of crashing sort()."""
+    try:
+        return datetime.fromisoformat(item["updated"].replace("Z", "+00:00"))
+    except (ValueError, KeyError, AttributeError):
+        return datetime.min.replace(tzinfo=timezone.utc)
+
+
+_CLOSED_STATUS_WORDS = ("done", "closed", "resolved", "solved")
+
+
+def _is_closed(item: dict) -> bool:
+    status = (item.get("status") or "").lower()
+    return any(word in status for word in _CLOSED_STATUS_WORDS)
+
+
+def client_recent_tickets(client_id: int, user_id: int, days: int = 30) -> list[dict]:
+    """Aggregated *open* bugs/tasks across Jira, Azure DevOps, and Zendesk for
+    this client -- powers the Clients page's "Candidate incidents" section.
+    Closed/done/resolved/solved items are filtered out: the point of this
+    list is "what might still need investigating," not a full ticket
+    history (Jira/Azure DevOps/Zendesk already show that natively). Each
+    source resolves its own config (client override -> shared global default
+    -> demo data) the same way every other per-client call does; a source
+    with nothing configured just contributes no items, same as it would
+    silently do for an investigation."""
+    items = (
+        jira.list_recent_issues(user_id, client_id=client_id, days=days)
+        + azure_devops.list_recent_work_items(user_id, client_id=client_id, days=days)
+        + zendesk.list_recent_tickets(user_id, client_id=client_id, days=days)
+    )
+    items = [item for item in items if not _is_closed(item)]
+    items.sort(key=_ticket_sort_key, reverse=True)
+    return items[:30]
 
 
 def set_client_integration(client_id: int, user_id: int, name: str, fields: dict) -> dict:

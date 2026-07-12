@@ -39,6 +39,15 @@ def jira_post_comment(key: str) -> str:
     return f"[demo mode] Comment posted to {key} (no real Jira instance configured)"
 
 
+def jira_recent_issues() -> list[dict]:
+    return [
+        {
+            "source": "jira", "id": "OPS-123", "title": _TITLE, "type": "Bug", "status": "In Progress",
+            "updated": "2026-07-10T14:11:00.000+0000", "url": None,
+        },
+    ]
+
+
 def github_recent_runs(repo: str) -> str:
     return (
         f"[DEMO DATA -- no GitHub token configured for {repo}]\n"
@@ -202,3 +211,12 @@ def zendesk_tickets(query: str) -> str:
         "(3 tickets opened in the 6 minutes following the 14:02 UTC deploy, all describing the same "
         "checkout failure -- consistent with the DB_POOL_SIZE regression, not isolated user reports.)"
     )
+
+
+def zendesk_recent_tickets() -> list[dict]:
+    return [
+        {
+            "source": "zendesk", "id": 10482, "title": "Checkout keeps failing, tried 3 times", "type": "ticket",
+            "status": "open", "updated": "2026-07-10T14:13:02Z", "url": None,
+        },
+    ]

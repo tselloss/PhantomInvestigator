@@ -98,6 +98,45 @@ def get_ticket(key: str, user_id: int, deployment_id: int | None = None) -> str:
     return "\n".join(lines)[:3000]
 
 
+def list_recent_issues(user_id: int, client_id: int | None = None, days: int = 30) -> list[dict]:
+    """Recently created issues visible to this account, most-recent first --
+    powers the Clients page's aggregated "Bugs & tasks" view. Unlike
+    get_ticket, this is a browse view, not investigation evidence, so
+    no-config/failures just return an empty list rather than an ERROR string."""
+    cfg = _config(user_id, client_id=client_id)
+    if not cfg["base_url"]:
+        if users.get_demo_mode(user_id):
+            return demo_data.jira_recent_issues()
+        return []
+    try:
+        resp = request_with_retry(
+            "GET",
+            f"{cfg['base_url']}/rest/api/3/search",
+            auth=(cfg["email"], cfg["api_token"]),
+            params={
+                "jql": f"created >= -{int(days)}d ORDER BY created DESC",
+                "fields": "summary,status,created,issuetype",
+                "maxResults": 20,
+            },
+            timeout=10.0,
+        )
+    except httpx.HTTPError:
+        return []
+    issues = resp.json().get("issues", [])
+    return [
+        {
+            "source": "jira",
+            "id": i["key"],
+            "title": i["fields"].get("summary", ""),
+            "type": i["fields"].get("issuetype", {}).get("name", ""),
+            "status": i["fields"].get("status", {}).get("name", ""),
+            "updated": i["fields"].get("created", ""),
+            "url": f"{cfg['base_url']}/browse/{i['key']}",
+        }
+        for i in issues
+    ]
+
+
 def post_comment(key: str, body: str, user_id: int, deployment_id: int | None = None) -> str:
     cfg = _config(user_id, deployment_id=deployment_id)
     if not cfg["base_url"]:

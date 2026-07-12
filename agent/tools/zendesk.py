@@ -6,6 +6,7 @@ tools alone don't have. Read-only: no post_comment/write path, unlike
 jira.py/azure_devops.py -- support tickets aren't a place this agent
 posts back to."""
 import os
+from datetime import datetime, timedelta, timezone
 
 import httpx
 
@@ -73,3 +74,41 @@ def search_tickets(query: str, user_id: int, deployment_id: int | None = None) -
         for t in results[:10]
     ]
     return "\n".join(lines)[:3000]
+
+
+def list_recent_tickets(user_id: int, client_id: int | None = None, days: int = 30) -> list[dict]:
+    """Recently created tickets, most-recent first -- powers the Clients
+    page's aggregated "Bugs & tasks" view. Unlike search_tickets, no query
+    filter -- a browse view, not an agent-driven text search, so
+    no-config/failures just return an empty list rather than an ERROR string."""
+    cfg = _config(user_id, client_id=client_id)
+    if not (cfg["subdomain"] and cfg["email"] and cfg["api_token"]):
+        if users.get_demo_mode(user_id):
+            return demo_data.zendesk_recent_tickets()
+        return []
+
+    since = (datetime.now(timezone.utc) - timedelta(days=days)).strftime("%Y-%m-%d")
+    try:
+        resp = request_with_retry(
+            "GET",
+            f"{_base_url(cfg)}/search.json",
+            auth=_auth(cfg),
+            params={"query": f"type:ticket created>{since}", "sort_by": "created_at", "sort_order": "desc"},
+            timeout=10.0,
+        )
+    except httpx.HTTPError:
+        return []
+
+    results = resp.json().get("results", [])
+    return [
+        {
+            "source": "zendesk",
+            "id": t.get("id"),
+            "title": t.get("subject", ""),
+            "type": "ticket",
+            "status": t.get("status", ""),
+            "updated": t.get("created_at", ""),
+            "url": f"https://{cfg['subdomain']}.zendesk.com/agent/tickets/{t.get('id')}",
+        }
+        for t in results[:20]
+    ]

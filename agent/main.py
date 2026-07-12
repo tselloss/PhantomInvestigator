@@ -25,6 +25,7 @@ from routes.auth import SESSION_COOKIE, get_current_user, verify_session_cookie
 from routes.auth import router as auth_router
 from routes.checkin import router as checkin_router
 from routes.client_integrations import router as client_integrations_router
+from routes.client_tickets import router as client_tickets_router
 from routes.clients import router as clients_router
 from routes.diagnostics import router as diagnostics_router
 from routes.evals import router as evals_router
@@ -84,6 +85,7 @@ app.include_router(checkin_router)
 app.include_router(auth_router)
 app.include_router(clients_router, prefix="/api")
 app.include_router(client_integrations_router, prefix="/api")
+app.include_router(client_tickets_router, prefix="/api")
 app.include_router(diagnostics_router, prefix="/api")
 app.include_router(investigations_router, prefix="/api")
 app.include_router(runbooks_router, prefix="/api")

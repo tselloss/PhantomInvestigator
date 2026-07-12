@@ -146,3 +146,65 @@ def test_post_comment_handles_http_error(monkeypatch):
     respx.post("https://example.atlassian.net/rest/api/3/issue/OPS-1/comment").mock(return_value=httpx.Response(500))
     result = jira.post_comment("OPS-1", "body", 1)
     assert result.startswith("ERROR")
+
+
+def test_list_recent_issues_returns_empty_when_not_configured(monkeypatch):
+    monkeypatch.setattr(jira, "JIRA_BASE_URL", "")
+    assert jira.list_recent_issues(1) == []
+
+
+def test_list_recent_issues_returns_demo_data_when_demo_mode_enabled(monkeypatch):
+    monkeypatch.setattr(jira, "JIRA_BASE_URL", "")
+    monkeypatch.setattr(jira.users, "get_demo_mode", lambda user_id: True)
+    result = jira.list_recent_issues(1)
+    assert result[0]["source"] == "jira"
+
+
+@respx.mock
+def test_list_recent_issues_formats_results(monkeypatch):
+    monkeypatch.setattr(jira, "JIRA_BASE_URL", "https://example.atlassian.net")
+    route = respx.get("https://example.atlassian.net/rest/api/3/search").mock(
+        return_value=httpx.Response(
+            200,
+            json={
+                "issues": [
+                    {
+                        "key": "OPS-1",
+                        "fields": {
+                            "summary": "Checkout down",
+                            "status": {"name": "Open"},
+                            "created": "2026-07-10T14:11:00.000+0000",
+                            "issuetype": {"name": "Bug"},
+                        },
+                    }
+                ]
+            },
+        )
+    )
+    result = jira.list_recent_issues(1)
+    assert route.called
+    assert result == [
+        {
+            "source": "jira", "id": "OPS-1", "title": "Checkout down", "type": "Bug", "status": "Open",
+            "updated": "2026-07-10T14:11:00.000+0000", "url": "https://example.atlassian.net/browse/OPS-1",
+        }
+    ]
+
+
+@respx.mock
+def test_list_recent_issues_handles_http_error(monkeypatch):
+    monkeypatch.setattr(jira, "JIRA_BASE_URL", "https://example.atlassian.net")
+    respx.get("https://example.atlassian.net/rest/api/3/search").mock(return_value=httpx.Response(500))
+    assert jira.list_recent_issues(1) == []
+
+
+def test_list_recent_issues_passes_client_id_to_config(monkeypatch):
+    captured = {}
+
+    def fake_config(user_id, deployment_id=None, client_id=None):
+        captured["client_id"] = client_id
+        return {"base_url": "", "email": "", "api_token": ""}
+
+    monkeypatch.setattr(jira, "_config", fake_config)
+    jira.list_recent_issues(1, client_id=7)
+    assert captured["client_id"] == 7

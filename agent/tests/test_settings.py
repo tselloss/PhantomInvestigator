@@ -1,5 +1,5 @@
 import settings
-from tools import jira, zendesk
+from tools import azure_devops, jira, zendesk
 
 
 def test_client_integration_status_reports_own_override(monkeypatch):
@@ -141,3 +141,67 @@ def test_test_client_integration_zendesk_uses_client_scoped_config(monkeypatch):
     result = settings.test_client_integration(7, 1, "zendesk")
     assert result["ok"] is True
     assert "Ops Bot" in result["detail"]
+
+
+def test_client_recent_tickets_aggregates_and_sorts_across_sources(monkeypatch):
+    monkeypatch.setattr(
+        jira, "list_recent_issues",
+        lambda user_id, client_id=None, days=30: [
+            {"source": "jira", "id": "OPS-1", "title": "older", "type": "Bug", "status": "Open", "updated": "2026-07-09T00:00:00.000+0000", "url": None},
+        ],
+    )
+    monkeypatch.setattr(
+        azure_devops, "list_recent_work_items",
+        lambda user_id, client_id=None, days=30: [
+            {"source": "azure_devops", "id": 1, "title": "newest", "type": "Bug", "status": "Active", "updated": "2026-07-11T00:00:00Z", "url": None},
+        ],
+    )
+    monkeypatch.setattr(
+        zendesk, "list_recent_tickets",
+        lambda user_id, client_id=None, days=30: [
+            {"source": "zendesk", "id": 1, "title": "middle", "type": "ticket", "status": "open", "updated": "2026-07-10T00:00:00Z", "url": None},
+        ],
+    )
+    result = settings.client_recent_tickets(7, 1)
+    assert [r["title"] for r in result] == ["newest", "middle", "older"]
+
+
+def test_client_recent_tickets_caps_at_thirty(monkeypatch):
+    monkeypatch.setattr(
+        jira, "list_recent_issues",
+        lambda user_id, client_id=None, days=30: [
+            {"source": "jira", "id": f"OPS-{i}", "title": "x", "type": "Bug", "status": "Open", "updated": "2026-07-10T00:00:00.000+0000", "url": None}
+            for i in range(40)
+        ],
+    )
+    monkeypatch.setattr(azure_devops, "list_recent_work_items", lambda user_id, client_id=None, days=30: [])
+    monkeypatch.setattr(zendesk, "list_recent_tickets", lambda user_id, client_id=None, days=30: [])
+    assert len(settings.client_recent_tickets(7, 1)) == 30
+
+
+def test_ticket_sort_key_tolerates_missing_or_malformed_timestamp():
+    assert settings._ticket_sort_key({}) == settings._ticket_sort_key({"updated": "not-a-date"})
+
+
+def test_client_recent_tickets_filters_out_closed_items(monkeypatch):
+    monkeypatch.setattr(
+        jira, "list_recent_issues",
+        lambda user_id, client_id=None, days=30: [
+            {"source": "jira", "id": "OPS-1", "title": "still open", "type": "Bug", "status": "In Progress", "updated": "2026-07-10T00:00:00.000+0000", "url": None},
+            {"source": "jira", "id": "OPS-2", "title": "wrapped up", "type": "Bug", "status": "Done", "updated": "2026-07-11T00:00:00.000+0000", "url": None},
+        ],
+    )
+    monkeypatch.setattr(
+        azure_devops, "list_recent_work_items",
+        lambda user_id, client_id=None, days=30: [
+            {"source": "azure_devops", "id": 1, "title": "shipped fix", "type": "Bug", "status": "Closed", "updated": "2026-07-11T00:00:00Z", "url": None},
+        ],
+    )
+    monkeypatch.setattr(
+        zendesk, "list_recent_tickets",
+        lambda user_id, client_id=None, days=30: [
+            {"source": "zendesk", "id": 1, "title": "customer happy", "type": "ticket", "status": "solved", "updated": "2026-07-11T00:00:00Z", "url": None},
+        ],
+    )
+    result = settings.client_recent_tickets(7, 1)
+    assert [r["title"] for r in result] == ["still open"]
