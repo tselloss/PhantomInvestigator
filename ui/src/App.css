@@ -415,8 +415,10 @@ section h2 {
   margin: 0 0 16px;
 }
 
-.integration-grid {
-  grid-template-columns: repeat(auto-fit, minmax(165px, 1fr));
+.fault-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 12px;
 }
 
 .row {
