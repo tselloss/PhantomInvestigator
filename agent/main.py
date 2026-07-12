@@ -62,7 +62,7 @@ class AuthMiddleware(BaseHTTPMiddleware):
         return await call_next(request)
 
 
-app = FastAPI(title="phantom-investigator")
+app = FastAPI(title="phantom-investigator", docs_url=None, redoc_url=None, openapi_url=None)
 
 
 @app.middleware("http")
