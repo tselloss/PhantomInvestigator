@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
-import { Link } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 import Icon from "../components/Icon";
+import Skeleton from "../components/Skeleton";
 import { integrationLabel, integrationRole } from "../lib/integrations";
 import { useToast } from "../context/ToastContext";
 
@@ -10,17 +11,20 @@ function slugify(name) {
 
 export default function Clients() {
   const toast = useToast();
-  const [clients, setClients] = useState([]);
+  const navigate = useNavigate();
+  const [clients, setClients] = useState(null);
   const [error, setError] = useState(null);
   const [name, setName] = useState("");
   const [creating, setCreating] = useState(false);
 
   const [expandedId, setExpandedId] = useState(null);
   const [detail, setDetail] = useState(null);
+  const [activeTab, setActiveTab] = useState("deployments");
   const [deployLabel, setDeployLabel] = useState("");
   const [deployEnv, setDeployEnv] = useState("production");
   const [deployJira, setDeployJira] = useState("");
   const [deployRepo, setDeployRepo] = useState("");
+  const [deployAzureDevOps, setDeployAzureDevOps] = useState("");
 
   const [editingClientId, setEditingClientId] = useState(null);
   const [editClientName, setEditClientName] = useState("");
@@ -38,17 +42,22 @@ export default function Clients() {
   const [editDeployEnv, setEditDeployEnv] = useState("production");
   const [editDeployJira, setEditDeployJira] = useState("");
   const [editDeployRepo, setEditDeployRepo] = useState("");
+  const [editDeployAzureDevOps, setEditDeployAzureDevOps] = useState("");
+  const [editDeployAllowedBranches, setEditDeployAllowedBranches] = useState("");
   const [savingDeployment, setSavingDeployment] = useState(false);
   const [confirmArchiveDeploymentId, setConfirmArchiveDeploymentId] = useState(null);
 
   const [integrationFieldSchema, setIntegrationFieldSchema] = useState({});
   const [clientIntegrations, setClientIntegrations] = useState([]);
+  const [tickets, setTickets] = useState([]);
+  const [ticketsLoading, setTicketsLoading] = useState(false);
   const [editingIntegration, setEditingIntegration] = useState(null);
   const [integrationFormValues, setIntegrationFormValues] = useState({});
   const [savingIntegration, setSavingIntegration] = useState(false);
   const [integrationSaveError, setIntegrationSaveError] = useState(null);
   const [testingIntegration, setTestingIntegration] = useState(null);
   const [integrationTestResults, setIntegrationTestResults] = useState({});
+  const [confirmClearIntegration, setConfirmClearIntegration] = useState(null);
 
   async function loadClients() {
     try {
@@ -83,6 +92,7 @@ export default function Clients() {
       }
       setName("");
       await loadClients();
+      toast.show("Client added.", { type: "ok" });
     } catch {
       toast.show("Couldn't add client — check your connection.", { type: "err" });
     } finally {
@@ -97,20 +107,27 @@ export default function Clients() {
       setClientIntegrations([]);
       setEditingIntegration(null);
       setIntegrationTestResults({});
+      setTickets([]);
       return;
     }
     setExpandedId(clientId);
+    setActiveTab("deployments");
+    setTicketsLoading(true);
     try {
-      const [detailRes, integrationsRes] = await Promise.all([
+      const [detailRes, integrationsRes, ticketsRes] = await Promise.all([
         fetch(`/api/clients/${clientId}`),
         fetch(`/api/clients/${clientId}/integrations`),
+        fetch(`/api/clients/${clientId}/tickets`),
       ]);
-      if (!detailRes.ok || !integrationsRes.ok) throw new Error("load failed");
+      if (!detailRes.ok || !integrationsRes.ok || !ticketsRes.ok) throw new Error("load failed");
       setDetail(await detailRes.json());
       setClientIntegrations(await integrationsRes.json());
+      setTickets(await ticketsRes.json());
     } catch {
       toast.show("Couldn't load client details.", { type: "err" });
       setExpandedId(null);
+    } finally {
+      setTicketsLoading(false);
     }
   }
 
@@ -125,6 +142,7 @@ export default function Clients() {
           environment: deployEnv,
           jira_project_key: deployJira || null,
           github_repo: deployRepo || null,
+          azure_devops_project: deployAzureDevOps || null,
         }),
       });
       if (!res.ok) {
@@ -135,8 +153,10 @@ export default function Clients() {
       setDeployLabel("");
       setDeployJira("");
       setDeployRepo("");
+      setDeployAzureDevOps("");
       const detailRes = await fetch(`/api/clients/${clientId}`);
       if (detailRes.ok) setDetail(await detailRes.json());
+      toast.show("Deployment added.", { type: "ok" });
     } catch {
       toast.show("Couldn't add deployment — check your connection.", { type: "err" });
     }
@@ -165,6 +185,7 @@ export default function Clients() {
       await loadClients();
       const detailRes = await fetch(`/api/clients/${clientId}`);
       if (detailRes.ok) setDetail(await detailRes.json());
+      toast.show("Client saved.", { type: "ok" });
     } catch {
       toast.show("Couldn't save client — check your connection.", { type: "err" });
     } finally {
@@ -185,6 +206,7 @@ export default function Clients() {
         setDetail(null);
       }
       await loadClients();
+      toast.show("Client archived.", { type: "ok" });
     } catch {
       toast.show("Couldn't archive client — check your connection.", { type: "err" });
     }
@@ -220,12 +242,16 @@ export default function Clients() {
       setEditingIntegration(null);
       const listRes = await fetch(`/api/clients/${clientId}/integrations`);
       setClientIntegrations(await listRes.json());
+      toast.show(`${integrationLabel(name)} override saved.`, { type: "ok" });
+    } catch {
+      toast.show("Couldn't save override — check your connection.", { type: "err" });
     } finally {
       setSavingIntegration(false);
     }
   }
 
   async function clearIntegration(clientId, name) {
+    setConfirmClearIntegration(null);
     try {
       const res = await fetch(`/api/clients/${clientId}/integrations/${name}`, { method: "DELETE" });
       if (!res.ok) {
@@ -234,6 +260,7 @@ export default function Clients() {
       }
       const listRes = await fetch(`/api/clients/${clientId}/integrations`);
       if (listRes.ok) setClientIntegrations(await listRes.json());
+      toast.show(`${integrationLabel(name)} override cleared.`, { type: "ok" });
     } catch {
       toast.show("Couldn't clear override — check your connection.", { type: "err" });
     }
@@ -245,11 +272,11 @@ export default function Clients() {
       const res = await fetch(`/api/clients/${clientId}/integrations/${name}/test`, { method: "POST" });
       const data = await res.json().catch(() => ({ ok: false, detail: `HTTP ${res.status}` }));
       setIntegrationTestResults((r) => ({ ...r, [name]: data }));
+      toast.show(data.detail || (data.ok ? "Connection OK." : "Connection failed."), { type: data.ok ? "ok" : "err" });
     } catch {
-      setIntegrationTestResults((r) => ({
-        ...r,
-        [name]: { ok: false, detail: "Connection test failed — check your connection." },
-      }));
+      const data = { ok: false, detail: "Connection test failed — check your connection." };
+      setIntegrationTestResults((r) => ({ ...r, [name]: data }));
+      toast.show(data.detail, { type: "err" });
     } finally {
       setTestingIntegration(null);
     }
@@ -261,11 +288,17 @@ export default function Clients() {
     setEditDeployEnv(d.environment);
     setEditDeployJira(d.jira_project_key || "");
     setEditDeployRepo(d.github_repo || "");
+    setEditDeployAzureDevOps(d.azure_devops_project || "");
+    setEditDeployAllowedBranches((d.allowed_base_branches || []).join(", "));
   }
 
   async function saveDeployment(clientId, deploymentId) {
     setSavingDeployment(true);
     try {
+      const allowedBranches = editDeployAllowedBranches
+        .split(",")
+        .map((b) => b.trim())
+        .filter(Boolean);
       const res = await fetch(`/api/clients/${clientId}/deployments/${deploymentId}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
@@ -274,6 +307,8 @@ export default function Clients() {
           environment: editDeployEnv,
           jira_project_key: editDeployJira || null,
           github_repo: editDeployRepo || null,
+          azure_devops_project: editDeployAzureDevOps || null,
+          allowed_base_branches: allowedBranches.length ? allowedBranches : null,
         }),
       });
       if (!res.ok) {
@@ -288,6 +323,7 @@ export default function Clients() {
       ]);
       if (depRes.ok) setDeploymentDetail(await depRes.json());
       if (clientRes.ok) setDetail(await clientRes.json());
+      toast.show("Deployment saved.", { type: "ok" });
     } catch {
       toast.show("Couldn't save deployment — check your connection.", { type: "err" });
     } finally {
@@ -310,6 +346,7 @@ export default function Clients() {
       }
       const detailRes = await fetch(`/api/clients/${clientId}`);
       if (detailRes.ok) setDetail(await detailRes.json());
+      toast.show("Deployment archived.", { type: "ok" });
     } catch {
       toast.show("Couldn't archive deployment — check your connection.", { type: "err" });
     }
@@ -356,6 +393,7 @@ export default function Clients() {
       ]);
       if (depRes.ok) setDeploymentDetail(await depRes.json());
       if (bundlesRes.ok) setBundles(await bundlesRes.json());
+      toast.show("Bundle uploaded.", { type: "ok" });
     } catch {
       toast.show("Couldn't upload bundle — check your connection.", { type: "err" });
     } finally {
@@ -389,14 +427,21 @@ export default function Clients() {
       </div>
 
       {error && <div className="alert err">Couldn't load clients: {error}</div>}
-      {!error && clients.length === 0 && (
+      {!error && clients === null && (
+        <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+          <Skeleton height={44} />
+          <Skeleton height={44} />
+          <Skeleton height={44} />
+        </div>
+      )}
+      {!error && clients?.length === 0 && (
         <div className="empty-state">
           <Icon name="users" size={30} />
           <p>No clients yet — add one above.</p>
         </div>
       )}
 
-      {clients.map((c) => (
+      {clients?.map((c) => (
         <div key={c.id} style={{ marginBottom: 8 }}>
           <div className="feed-row" style={{ cursor: "pointer" }} onClick={() => toggleExpand(c.id)}>
             <div className="row" style={{ gap: 8 }}>
@@ -457,6 +502,32 @@ export default function Clients() {
                 )}
               </div>
 
+              <div className="subtabs">
+                <button
+                  className={"subtab" + (activeTab === "deployments" ? " active" : "")}
+                  onClick={() => setActiveTab("deployments")}
+                >
+                  Deployments <span className="count">{detail.deployments.length}</span>
+                </button>
+                <button
+                  className={"subtab" + (activeTab === "tickets" ? " active" : "")}
+                  onClick={() => setActiveTab("tickets")}
+                >
+                  Candidate incidents <span className="count">{ticketsLoading ? "…" : tickets.length}</span>
+                </button>
+                <button
+                  className={"subtab" + (activeTab === "integrations" ? " active" : "")}
+                  onClick={() => setActiveTab("integrations")}
+                >
+                  Integrations{" "}
+                  <span className="count">
+                    {clientIntegrations.filter((i) => i.configured).length}/{clientIntegrations.length}
+                  </span>
+                </button>
+              </div>
+
+              {activeTab === "deployments" && (
+              <div key="deployments" className="tab-panel">
               {detail.deployments.length === 0 && (
                 <p className="placeholder" style={{ marginTop: 0 }}>No deployments yet for this client.</p>
               )}
@@ -478,6 +549,10 @@ export default function Clients() {
                       <span className={"tag" + (d.environment === "production" ? " warn" : "")}>{d.environment}</span>
                       {d.jira_project_key && <span className="tag">Jira {d.jira_project_key}</span>}
                       {d.github_repo && <span className="tag">{d.github_repo}</span>}
+                      {d.azure_devops_project && <span className="tag">ADO {d.azure_devops_project}</span>}
+                      {d.allowed_base_branches?.length > 0 && (
+                        <span className="tag">Auto-fix PRs: {d.allowed_base_branches.join(", ")}</span>
+                      )}
                     </div>
                     <div className="feed-meta">id {d.id}</div>
                   </div>
@@ -512,6 +587,22 @@ export default function Clients() {
                                 value={editDeployRepo}
                                 onChange={(e) => setEditDeployRepo(e.target.value)}
                                 placeholder="Optional"
+                              />
+                            </div>
+                            <div className="field">
+                              <label>Azure DevOps org/project</label>
+                              <input
+                                value={editDeployAzureDevOps}
+                                onChange={(e) => setEditDeployAzureDevOps(e.target.value)}
+                                placeholder="e.g. contoso/MyProject"
+                              />
+                            </div>
+                            <div className="field">
+                              <label>Allowed branches for auto-fix PRs</label>
+                              <input
+                                value={editDeployAllowedBranches}
+                                onChange={(e) => setEditDeployAllowedBranches(e.target.value)}
+                                placeholder="e.g. main, staging — blank disables auto-fix PRs"
                               />
                             </div>
                             <button
@@ -645,13 +736,74 @@ export default function Clients() {
                     onChange={(e) => setDeployRepo(e.target.value)}
                   />
                 </div>
+                <div className="field">
+                  <label>Azure DevOps org/project</label>
+                  <input
+                    type="text"
+                    placeholder="e.g. contoso/MyProject"
+                    value={deployAzureDevOps}
+                    onChange={(e) => setDeployAzureDevOps(e.target.value)}
+                  />
+                </div>
                 <button className="primary" disabled={!deployLabel.trim()} onClick={() => createDeployment(c.id)}>
                   <Icon name="plus" size={14} />
                   Add deployment
                 </button>
               </div>
+              </div>
+              )}
 
-              <p className="subheading">Integration overrides</p>
+              {activeTab === "tickets" && (
+              <div key="tickets" className="tab-panel">
+              <p className="placeholder" style={{ marginTop: 0 }}>
+                Still-open items from this client's Jira, Azure DevOps, and Zendesk — whichever are configured under
+                the Integrations tab, using this client's own override or the shared global default. Anything closed,
+                done, resolved, or solved is left out; this is a queue of what might still need investigating, not a
+                full ticket history (Jira/Azure DevOps/Zendesk already show that natively).
+              </p>
+              {ticketsLoading && <p className="placeholder">Loading…</p>}
+              {!ticketsLoading && tickets.length === 0 && (
+                <p className="placeholder">
+                  Nothing open — configure Jira, Azure DevOps, or Zendesk under the Integrations tab to populate this.
+                </p>
+              )}
+              {!ticketsLoading && tickets.map((t) => (
+                <div className="feed-row" key={`${t.source}-${t.id}`}>
+                  <div className="row" style={{ gap: 8 }}>
+                    <span className="feed-source">{integrationLabel(t.source)}</span>
+                    <span className="feed-meta">#{t.id}</span>
+                    {t.url ? (
+                      <a href={t.url} target="_blank" rel="noreferrer">{t.title}</a>
+                    ) : (
+                      <span>{t.title}</span>
+                    )}
+                    {t.type && <span className="tag">{t.type}</span>}
+                  </div>
+                  <div className="row" style={{ gap: 8 }}>
+                    <span className="feed-meta">{t.status}</span>
+                    <span className="feed-meta">{new Date(t.updated).toLocaleString()}</span>
+                    <button
+                      type="button"
+                      onClick={() =>
+                        navigate("/investigate", {
+                          state: {
+                            prefillNotes: `${integrationLabel(t.source)} #${t.id}: ${t.title}`,
+                            prefillDeploymentId: detail.deployments.length === 1 ? detail.deployments[0].id : null,
+                          },
+                        })
+                      }
+                    >
+                      <Icon name="search" size={13} />
+                      Investigate
+                    </button>
+                  </div>
+                </div>
+              ))}
+              </div>
+              )}
+
+              {activeTab === "integrations" && (
+              <div key="integrations" className="tab-panel">
               <p className="placeholder" style={{ marginTop: 0 }}>
                 Credentials this client's own deployments use instead of the shared global default, when an
                 investigation is scoped to one of this client's deployments. Configure the shared default on the{" "}
@@ -685,9 +837,17 @@ export default function Clients() {
                         </button>
                       )}
                       {i.override && (
-                        <button className="danger" onClick={() => clearIntegration(c.id, i.name)}>
-                          Clear override
-                        </button>
+                        confirmClearIntegration === i.name ? (
+                          <>
+                            <span className="placeholder" style={{ fontSize: 13 }}>Clear this override?</span>
+                            <button className="danger" onClick={() => clearIntegration(c.id, i.name)}>Confirm</button>
+                            <button onClick={() => setConfirmClearIntegration(null)}>Cancel</button>
+                          </>
+                        ) : (
+                          <button className="danger" onClick={() => setConfirmClearIntegration(i.name)}>
+                            Clear override
+                          </button>
+                        )
                       )}
                       <button
                         disabled={!i.configured || testingIntegration === i.name}
@@ -730,6 +890,8 @@ export default function Clients() {
                   )}
                 </div>
               ))}
+              </div>
+              )}
             </div>
           )}
         </div>

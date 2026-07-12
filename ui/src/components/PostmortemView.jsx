@@ -1,12 +1,19 @@
 export default function PostmortemView({ pm }) {
+  const confidencePct = Math.round((pm.confidence ?? 0) * 100);
+  const confidenceLevel = confidencePct >= 75 ? "ok" : confidencePct >= 45 ? "warn" : "err";
+
   return (
     <div className="pm-view">
-      <p className="pm-title">{pm.title || "Untitled incident"}</p>
-      <p className="pm-meta">
-        <span className="cat">{pm.fault_category || "unknown"}</span>
-        {" · confidence "}
-        {Math.round((pm.confidence ?? 0) * 100)}%
-      </p>
+      <div className="pm-header">
+        <div>
+          <span className="pm-category">{pm.fault_category || "unknown"}</span>
+          <h2 className="pm-title">{pm.title || "Untitled incident"}</h2>
+        </div>
+        <div className={"pm-confidence " + confidenceLevel}>
+          <div className="pm-confidence-value">{confidencePct}%</div>
+          <div className="pm-confidence-label">confidence</div>
+        </div>
+      </div>
       <div className="pm-section">
         <h3>Root cause</h3>
         <p>{pm.root_cause}</p>

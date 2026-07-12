@@ -98,6 +98,40 @@ const PATHS = {
       <polyline points="21 15 16 10 5 21" />
     </>
   ),
+  ghost: (
+    <>
+      <path d="M6 21v-9a6 6 0 1 1 12 0v9l-3-2-2 2-2-2-2 2-3-2z" />
+      <path d="M10 10h.01" />
+      <path d="M14 10h.01" />
+    </>
+  ),
+  link: (
+    <>
+      <path d="M9 17H7A5 5 0 0 1 7 7h2" />
+      <path d="M15 7h2a5 5 0 1 1 0 10h-2" />
+      <path d="M8 12h8" />
+    </>
+  ),
+  download: (
+    <>
+      <path d="M12 3v12" />
+      <path d="m7 10 5 5 5-5" />
+      <path d="M5 21h14" />
+    </>
+  ),
+  eye: (
+    <>
+      <path d="M1 12s4-7 11-7 11 7 11 7-4 7-11 7-11-7-11-7z" />
+      <circle cx="12" cy="12" r="3" />
+    </>
+  ),
+  eyeOff: (
+    <>
+      <path d="M17.94 17.94A10.94 10.94 0 0 1 12 20c-7 0-11-8-11-8a20.3 20.3 0 0 1 4.22-5.94M9.9 4.24A9.7 9.7 0 0 1 12 4c7 0 11 8 11 8a20.3 20.3 0 0 1-2.16 3.19" />
+      <path d="M14.12 14.12a3 3 0 1 1-4.24-4.24" />
+      <path d="M1 1l22 22" />
+    </>
+  ),
 };
 
 export default function Icon({ name, size = 16, className, style }) {

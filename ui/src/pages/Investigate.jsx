@@ -1,14 +1,26 @@
 import { useEffect, useRef, useState } from "react";
-import { Link } from "react-router-dom";
+import { Link, useLocation } from "react-router-dom";
 import Icon from "../components/Icon";
 import CircularText from "../components/CircularText";
 import PostmortemView from "../components/PostmortemView";
+import Button from "../components/Button";
+import StatusDot from "../components/StatusDot";
+import InvestigationTimeline from "../components/InvestigationTimeline";
+import { eventToLogEntry } from "../lib/investigationLog";
 import { composeAlertText } from "../lib/composeAlertText";
-import { truncate } from "../lib/format";
+import { truncate, relativeTime } from "../lib/format";
+import { integrationLabel } from "../lib/integrations";
 import { useToast } from "../context/ToastContext";
+
+function formatElapsed(sec) {
+  const m = Math.floor(sec / 60);
+  const s = sec % 60;
+  return `${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")}`;
+}
 
 export default function Investigate() {
   const toast = useToast();
+  const location = useLocation();
   const [aiConfigured, setAiConfigured] = useState(true);
   const [budget, setBudget] = useState(null);
   const [tryingTo, setTryingTo] = useState("");
@@ -19,21 +31,25 @@ export default function Investigate() {
   const [uploadingScreenshot, setUploadingScreenshot] = useState(false);
   const [screenshotNotice, setScreenshotNotice] = useState(null);
   const [running, setRunning] = useState(false);
-  const [streaming, setStreaming] = useState(false);
   const [elapsedSec, setElapsedSec] = useState(0);
   const [log, setLog] = useState([]);
   const [final, setFinal] = useState(null);
   const [deployments, setDeployments] = useState([]);
   const [deploymentId, setDeploymentId] = useState("");
+  const [tickets, setTickets] = useState([]);
+  const [ticketsLoading, setTicketsLoading] = useState(false);
+  const [pickedTicketKey, setPickedTicketKey] = useState(null);
+  const [stickBottom, setStickBottom] = useState(true);
   const esRef = useRef(null);
   const timerRef = useRef(null);
-  const logRef = useRef(null);
+  const scrollRef = useRef(null);
   const fileInputRef = useRef(null);
-  const stepCount = log.filter((l) => l.kind === "step").length;
 
   useEffect(() => {
-    if (logRef.current) logRef.current.scrollTop = logRef.current.scrollHeight;
-  }, [log]);
+    if (stickBottom && scrollRef.current) {
+      scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
+    }
+  }, [log, stickBottom]);
 
   useEffect(() => {
     fetch("/api/clients/deployments")
@@ -55,11 +71,66 @@ export default function Investigate() {
     };
   }, []);
 
+  // Arriving from a Clients "Candidate incidents" row prefills the alert text (and
+  // deployment, if the client has exactly one) so the operator doesn't retype it.
+  useEffect(() => {
+    if (location.state?.prefillNotes) setNotes(location.state.prefillNotes);
+    if (location.state?.prefillDeploymentId) setDeploymentId(location.state.prefillDeploymentId);
+  }, [location.state]);
+
+  // Picking a deployment pulls in that client's still-open Jira/Azure DevOps/Zendesk
+  // items directly -- so an operator can start from a real ticket instead of
+  // retyping what someone already wrote there.
+  useEffect(() => {
+    setPickedTicketKey(null);
+    if (!deploymentId) {
+      setTickets([]);
+      return;
+    }
+    const deployment = deployments.find((d) => String(d.id) === String(deploymentId));
+    if (!deployment) {
+      setTickets([]);
+      return;
+    }
+    let cancelled = false;
+    setTicketsLoading(true);
+    fetch(`/api/clients/${deployment.client_id}/tickets`)
+      .then((r) => r.json())
+      .then((data) => {
+        if (!cancelled) setTickets(data);
+      })
+      .catch(() => {
+        if (!cancelled) setTickets([]);
+      })
+      .finally(() => {
+        if (!cancelled) setTicketsLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [deploymentId, deployments]);
+
+  function pickTicket(ticket) {
+    setNotes(`${integrationLabel(ticket.source)} #${ticket.id}: ${ticket.title}`);
+    setPickedTicketKey(`${ticket.source}-${ticket.id}`);
+    toast.show("Ticket pulled in below — review and click Investigate.", { type: "ok" });
+  }
+
+  function handleScroll() {
+    const el = scrollRef.current;
+    if (!el) return;
+    const distanceFromBottom = el.scrollHeight - el.scrollTop - el.clientHeight;
+    setStickBottom(distanceFromBottom < 40);
+  }
+
+  function jumpToLatest() {
+    setStickBottom(true);
+  }
+
   function stopStreaming() {
     clearInterval(timerRef.current);
     esRef.current?.close();
     esRef.current = null;
-    setStreaming(false);
   }
 
   function cancel() {
@@ -73,6 +144,7 @@ export default function Investigate() {
     setLog([]);
     setFinal(null);
     setElapsedSec(0);
+    setStickBottom(true);
     setScreenshotNotice(null);
 
     let screenshotDescription = null;
@@ -116,29 +188,18 @@ export default function Investigate() {
     if (screenshotId) params.set("screenshot_id", screenshotId);
     const es = new EventSource(`/api/investigate/stream?${params}`);
     esRef.current = es;
-    setStreaming(true);
     timerRef.current = setInterval(() => setElapsedSec((s) => s + 1), 1000);
 
     es.onmessage = (e) => {
       const event = JSON.parse(e.data);
-      switch (event.type) {
-        case "step_start":
-          setLog((l) => [...l, { kind: "step", step: event.step }]);
-          break;
-        case "tool_call":
-          setLog((l) => [...l, { kind: "call", name: event.name, input: event.input }]);
-          break;
-        case "tool_result": {
-          const text = event.result.length > 200 ? event.result.slice(0, 200) + "…" : event.result;
-          setLog((l) => [...l, { kind: "out", text }]);
-          break;
-        }
-        case "final":
-          stopStreaming();
-          setFinal(event.data);
-          setRunning(false);
-          break;
+      if (event.type === "final") {
+        stopStreaming();
+        setFinal(event.data);
+        setRunning(false);
+        return;
       }
+      const entry = eventToLogEntry(event);
+      if (entry) setLog((l) => [...l, { ...entry, at: Date.now() }]);
     };
 
     es.onerror = () => {
@@ -151,6 +212,26 @@ export default function Investigate() {
 
   const busy = running || uploadingScreenshot;
   const budgetExceeded = budget?.monthly_limit_usd != null && budget.spent_this_month_usd >= budget.monthly_limit_usd;
+  const submitted = running || log.length > 0 || final != null;
+  const isErrorFinal = final != null && (final.partial === true || (!final.postmortem && !final.deduped && !final.investigation_id));
+
+  const overallStatus = running ? "running" : !final ? null : isErrorFinal ? (final.partial ? "partial" : "error") : "done";
+  const statusDotColor =
+    overallStatus === "running" ? "phantom" : overallStatus === "done" ? "ok" : overallStatus === "partial" ? "warn" : "err";
+
+  function editAgain() {
+    if (running) stopStreaming();
+    setRunning(false);
+    setLog([]);
+    setFinal(null);
+  }
+
+  const alertPreview = truncate(
+    composeAlertText({ tryingTo, instead, page, notes, screenshotDescription: null })
+      .replace(/\s+/g, " ")
+      .trim(),
+    90
+  );
 
   return (
     <section>
@@ -180,12 +261,80 @@ export default function Investigate() {
         </div>
       )}
 
+      {!submitted && (
       <form
         onSubmit={(e) => {
           e.preventDefault();
           if (!busy && aiConfigured && !budgetExceeded) start();
         }}
       >
+        <div className="row" style={{ marginTop: 14 }}>
+          <div className="field grow">
+            <label>Client / project</label>
+            <select value={deploymentId} onChange={(e) => setDeploymentId(e.target.value)} disabled={busy}>
+              <option value="">No deployment (demo/manual)</option>
+              {deployments.map((d) => (
+                <option key={d.id} value={d.id}>
+                  {d.client_name} / {d.label}
+                </option>
+              ))}
+            </select>
+          </div>
+        </div>
+
+        {deploymentId && (
+          <div className="ticket-picker">
+            {ticketsLoading && (
+              <div className="row" style={{ gap: 8, padding: "10px 2px" }}>
+                <span className="mini-spinner" />
+                <span className="feed-meta">Loading open tickets…</span>
+              </div>
+            )}
+            {!ticketsLoading && tickets.length === 0 && (
+              <p className="placeholder" style={{ margin: "8px 0 0", fontSize: 13 }}>
+                No open tickets for this project — configure Jira, Azure DevOps, or Zendesk on{" "}
+                <Link to="/clients">the Clients page</Link>, or just describe the incident below.
+              </p>
+            )}
+            {!ticketsLoading && tickets.length > 0 && (
+              <div style={{ display: "flex", flexDirection: "column", gap: 6, marginTop: 8 }}>
+                {tickets.map((t) => {
+                  const key = `${t.source}-${t.id}`;
+                  return (
+                    <div className={"feed-row ticket-row" + (pickedTicketKey === key ? " picked" : "")} key={key}>
+                      <div className="row" style={{ gap: 8 }}>
+                        <span className="feed-source">{integrationLabel(t.source)}</span>
+                        <span className="feed-meta">#{t.id}</span>
+                        {t.url ? (
+                          <a href={t.url} target="_blank" rel="noreferrer">
+                            {t.title}
+                          </a>
+                        ) : (
+                          <span>{t.title}</span>
+                        )}
+                        {t.type && <span className="tag">{t.type}</span>}
+                      </div>
+                      <div className="row" style={{ gap: 8 }}>
+                        <span className="feed-meta">{t.status}</span>
+                        <span className="feed-meta">{relativeTime(t.updated)}</span>
+                        <Button
+                          type="button"
+                          variant={pickedTicketKey === key ? "primary" : undefined}
+                          icon={pickedTicketKey === key ? "check" : "search"}
+                          disabled={busy}
+                          onClick={() => pickTicket(t)}
+                        >
+                          {pickedTicketKey === key ? "Pulled in" : "Use this"}
+                        </Button>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+        )}
+
         <div className="row" style={{ marginTop: 14 }}>
           <div className="field">
             <label>What were they trying to do?</label>
@@ -267,17 +416,6 @@ export default function Investigate() {
               )}
             </div>
           </div>
-          <div className="field">
-            <label>Deployment</label>
-            <select value={deploymentId} onChange={(e) => setDeploymentId(e.target.value)} disabled={busy}>
-              <option value="">No deployment (demo/manual)</option>
-              {deployments.map((d) => (
-                <option key={d.id} value={d.id}>
-                  {d.client_name} / {d.label}
-                </option>
-              ))}
-            </select>
-          </div>
         </div>
 
         <div className="row" style={{ marginTop: 16 }}>
@@ -288,6 +426,7 @@ export default function Investigate() {
           {uploadingScreenshot && <span className="spinner">Analyzing screenshot…</span>}
         </div>
       </form>
+      )}
 
       {screenshotNotice && (
         <div className="alert warn">
@@ -297,16 +436,24 @@ export default function Investigate() {
       )}
 
       <div style={{ marginTop: 16 }}>
-        {streaming && (
-          <div className="row" style={{ justifyContent: "space-between", marginBottom: 10 }}>
-            <span className="feed-meta">
-              {stepCount > 0 ? `Step ${stepCount} · ` : "Starting… · "}
-              {elapsedSec}s elapsed
-            </span>
-            <button type="button" className="ghost" onClick={cancel}>
-              <Icon name="x" size={13} />
-              Cancel
-            </button>
+        {submitted && (
+          <div className="investigate-summary-bar">
+            <div className="investigate-summary-title">
+              <StatusDot status={statusDotColor} live={running} />
+              <span>{alertPreview}</span>
+            </div>
+            <div className="investigate-summary-meta">
+              <span className="investigate-elapsed">{formatElapsed(elapsedSec)}</span>
+              {running ? (
+                <Button variant="ghost" icon="x" onClick={cancel}>
+                  Cancel
+                </Button>
+              ) : (
+                <Button variant="ghost" onClick={editAgain}>
+                  Edit
+                </Button>
+              )}
+            </div>
           </div>
         )}
 
@@ -320,30 +467,16 @@ export default function Investigate() {
         )}
 
         {log.length > 0 && (
-          <div className="stream-log" ref={logRef}>
-            {log.map((line, i) => {
-              if (line.kind === "step") {
-                return (
-                  <div key={i} className="step">
-                    Step {line.step}
-                  </div>
-                );
-              }
-              if (line.kind === "call") {
-                return (
-                  <div key={i} className="call">
-                    {line.name}({JSON.stringify(line.input)})
-                  </div>
-                );
-              }
-              const preview = truncate(line.text.replace(/\s+/g, " ").trim(), 70);
-              return (
-                <details key={i} className="out">
-                  <summary>{preview || "(empty result)"}</summary>
-                  <div className="out-body">{line.text}</div>
-                </details>
-              );
-            })}
+          <div className="timeline-scroll" ref={scrollRef} onScroll={handleScroll}>
+            <InvestigationTimeline log={log} running={running} />
+            {!stickBottom && (
+              <div className="jump-to-latest-wrap">
+                <button type="button" className="jump-to-latest" onClick={jumpToLatest}>
+                  <Icon name="chevron" size={12} style={{ transform: "rotate(90deg)" }} />
+                  Jump to latest
+                </button>
+              </div>
+            )}
           </div>
         )}
 
@@ -354,7 +487,26 @@ export default function Investigate() {
           </div>
         )}
 
-        {final && final.deduped && (
+        {final && isErrorFinal && (
+          <div className="alert err" style={{ marginTop: 0, marginBottom: 12 }}>
+            <Icon name="x" size={15} />
+            <div style={{ flex: 1 }}>
+              <div>{final.result || "The investigation didn't finish cleanly."}</div>
+              <div className="row" style={{ gap: 8, marginTop: 10 }}>
+                <Button variant="primary" icon="search" onClick={start}>
+                  Retry investigation
+                </Button>
+                {final.investigation_id && (
+                  <Link to={`/investigations/${final.investigation_id}`}>
+                    <Button variant="ghost">View partial result</Button>
+                  </Link>
+                )}
+              </div>
+            </div>
+          </div>
+        )}
+
+        {final && !isErrorFinal && final.deduped && (
           <div className="alert ok" style={{ marginTop: 0, marginBottom: 12 }}>
             <Icon name="check" size={15} />
             <span>
@@ -365,7 +517,7 @@ export default function Investigate() {
           </div>
         )}
 
-        {final && !final.deduped && final.investigation_id && (
+        {final && !isErrorFinal && !final.deduped && final.investigation_id && (
           <div className="row" style={{ justifyContent: "flex-end", marginBottom: 10 }}>
             <Link to={`/investigations/${final.investigation_id}`}>
               <button type="button" className="ghost">
@@ -376,8 +528,10 @@ export default function Investigate() {
           </div>
         )}
 
-        {final && final.postmortem && <PostmortemView pm={final.postmortem} />}
-        {final && !final.postmortem && <pre>{final.result || JSON.stringify(final, null, 2)}</pre>}
+        {final && !isErrorFinal && final.postmortem && <PostmortemView pm={final.postmortem} />}
+        {final && !isErrorFinal && !final.postmortem && !final.deduped && (
+          <pre>{final.result || JSON.stringify(final, null, 2)}</pre>
+        )}
       </div>
     </section>
   );

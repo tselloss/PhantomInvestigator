@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import StatusDot from "./StatusDot";
 
 export default function StatusPill() {
   const [text, setText] = useState("checking...");
@@ -34,5 +35,10 @@ export default function StatusPill() {
     };
   }, []);
 
-  return <span className={"status-pill" + (faulted ? " faulted" : "")}>{text}</span>;
+  return (
+    <span className={"status-pill" + (faulted ? " faulted" : "")}>
+      <StatusDot status={faulted ? "warn" : "ok"} live={!faulted} />
+      {text}
+    </span>
+  );
 }

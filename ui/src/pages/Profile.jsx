@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import Icon from "../components/Icon";
+import Skeleton from "../components/Skeleton";
 import { useToast } from "../context/ToastContext";
 
 export default function Profile() {
@@ -9,6 +10,7 @@ export default function Profile() {
   const [limitInput, setLimitInput] = useState("");
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState(null);
+  const [confirmRemoveCap, setConfirmRemoveCap] = useState(false);
 
   async function load() {
     try {
@@ -33,6 +35,7 @@ export default function Profile() {
   async function saveLimit(monthlyLimitUsd) {
     setSaving(true);
     setSaveError(null);
+    setConfirmRemoveCap(false);
     try {
       const res = await fetch("/api/settings/profile/limit", {
         method: "POST",
@@ -46,6 +49,7 @@ export default function Profile() {
       }
       setEditing(false);
       await load();
+      toast.show(monthlyLimitUsd == null ? "Monthly spend cap removed." : "Monthly spend cap updated.", { type: "ok" });
     } finally {
       setSaving(false);
     }
@@ -65,7 +69,15 @@ export default function Profile() {
     saveLimit(parsed);
   }
 
-  if (!profile) return null;
+  if (!profile) {
+    return (
+      <section>
+        <Skeleton width={160} height={16} style={{ marginBottom: 18 }} />
+        <Skeleton height={44} style={{ marginBottom: 10 }} />
+        <Skeleton height={44} />
+      </section>
+    );
+  }
 
   const { monthly_limit_usd: limit, spent_this_month_usd: spent } = profile;
   const pct = limit ? Math.min(100, (spent / limit) * 100) : 0;
@@ -104,9 +116,17 @@ export default function Profile() {
           <div className="row" style={{ gap: 8 }}>
             <button onClick={() => (editing ? setEditing(false) : startEdit())}>{editing ? "Cancel" : "Edit"}</button>
             {limit != null && (
-              <button className="danger" disabled={saving} onClick={() => saveLimit(null)}>
-                Remove cap
-              </button>
+              confirmRemoveCap ? (
+                <>
+                  <span className="placeholder" style={{ fontSize: 13 }}>Remove the spend cap?</span>
+                  <button className="danger" disabled={saving} onClick={() => saveLimit(null)}>Confirm</button>
+                  <button onClick={() => setConfirmRemoveCap(false)}>Cancel</button>
+                </>
+              ) : (
+                <button className="danger" disabled={saving} onClick={() => setConfirmRemoveCap(true)}>
+                  Remove cap
+                </button>
+              )
             )}
           </div>
         </div>

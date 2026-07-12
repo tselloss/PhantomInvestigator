@@ -118,8 +118,8 @@ export default function Home() {
       <div className="hero hero-grain">
         <div className="hero-grid">
           <div className="hero-copy">
-            <span className="brand-mark hero-mark" style={{ width: 56, height: 56, fontSize: 28 }}>
-              👻
+            <span className="brand-mark hero-mark" style={{ width: 56, height: 56 }}>
+              <Icon name="ghost" size={30} />
             </span>
             <h1>
               Your AI SRE for{" "}

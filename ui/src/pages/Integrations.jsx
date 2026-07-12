@@ -1,11 +1,15 @@
 import { useEffect, useState } from "react";
-import Icon from "../components/Icon";
+import Button from "../components/Button";
+import Card from "../components/Card";
+import StatusDot from "../components/StatusDot";
+import RevealInput from "../components/RevealInput";
+import Skeleton from "../components/Skeleton";
 import { integrationLabel, integrationRole } from "../lib/integrations";
 import { useToast } from "../context/ToastContext";
 
 export default function Integrations() {
   const toast = useToast();
-  const [integrations, setIntegrations] = useState([]);
+  const [integrations, setIntegrations] = useState(null);
   const [fieldSchema, setFieldSchema] = useState({});
   const [testing, setTesting] = useState(null);
   const [results, setResults] = useState({});
@@ -13,6 +17,7 @@ export default function Integrations() {
   const [formValues, setFormValues] = useState({});
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState(null);
+  const [confirmClear, setConfirmClear] = useState(null);
 
   const [aiStatus, setAiStatus] = useState(null);
   const [aiFields, setAiFields] = useState([]);
@@ -22,6 +27,7 @@ export default function Integrations() {
   const [aiFormValues, setAiFormValues] = useState({});
   const [aiSaving, setAiSaving] = useState(false);
   const [aiSaveError, setAiSaveError] = useState(null);
+  const [confirmClearAi, setConfirmClearAi] = useState(false);
 
   async function load() {
     try {
@@ -43,50 +49,26 @@ export default function Integrations() {
 
   useEffect(() => {
     load();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   async function testAi() {
     setAiTesting(true);
     try {
       const res = await fetch("/api/settings/ai/test", { method: "POST" });
-      setAiResult(await res.json().catch(() => ({ ok: false, detail: `HTTP ${res.status}` })));
+      const data = await res.json().catch(() => ({ ok: false, detail: `HTTP ${res.status}` }));
+      setAiResult(data);
+      toast.show(data.detail || (data.ok ? "Connection OK." : "Connection failed."), { type: data.ok ? "ok" : "err" });
     } catch {
       setAiResult({ ok: false, detail: "Connection test failed — check your connection." });
+      toast.show("Connection test failed — check your connection.", { type: "err" });
     } finally {
       setAiTesting(false);
     }
   }
 
-  function startAiEdit() {
-    setAiEditing(true);
-    setAiSaveError(null);
-    const blank = {};
-    aiFields.forEach((f) => (blank[f.key] = ""));
-    setAiFormValues(blank);
-  }
-
-  async function saveAi() {
-    setAiSaving(true);
-    setAiSaveError(null);
-    try {
-      const res = await fetch("/api/settings/ai", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(aiFormValues),
-      });
-      if (!res.ok) {
-        const detail = await res.json().catch(() => ({}));
-        setAiSaveError(detail.detail || `HTTP ${res.status}`);
-        return;
-      }
-      setAiEditing(false);
-      await load();
-    } finally {
-      setAiSaving(false);
-    }
-  }
-
   async function clearAi() {
+    setConfirmClearAi(false);
     try {
       const res = await fetch("/api/settings/ai", { method: "DELETE" });
       if (!res.ok) {
@@ -94,6 +76,7 @@ export default function Integrations() {
         return;
       }
       await load();
+      toast.show("AI provider override cleared.", { type: "ok" });
     } catch {
       toast.show("Couldn't clear AI provider override — check your connection.", { type: "err" });
     }
@@ -105,8 +88,11 @@ export default function Integrations() {
       const res = await fetch(`/api/settings/integrations/${name}/test`, { method: "POST" });
       const data = await res.json().catch(() => ({ ok: false, detail: `HTTP ${res.status}` }));
       setResults((r) => ({ ...r, [name]: data }));
+      toast.show(data.detail || (data.ok ? "Connection OK." : "Connection failed."), { type: data.ok ? "ok" : "err" });
     } catch {
-      setResults((r) => ({ ...r, [name]: { ok: false, detail: "Connection test failed — check your connection." } }));
+      const data = { ok: false, detail: "Connection test failed — check your connection." };
+      setResults((r) => ({ ...r, [name]: data }));
+      toast.show(data.detail, { type: "err" });
     } finally {
       setTesting(null);
     }
@@ -141,12 +127,16 @@ export default function Integrations() {
       }
       setEditing(null);
       await load();
+      toast.show(`${integrationLabel(name)} saved.`, { type: "ok" });
+    } catch {
+      toast.show("Couldn't save — check your connection.", { type: "err" });
     } finally {
       setSaving(false);
     }
   }
 
   async function clearOverride(name) {
+    setConfirmClear(null);
     try {
       const res = await fetch(`/api/settings/integrations/${name}`, { method: "DELETE" });
       if (!res.ok) {
@@ -154,8 +144,41 @@ export default function Integrations() {
         return;
       }
       await load();
+      toast.show(`${integrationLabel(name)} override cleared.`, { type: "ok" });
     } catch {
       toast.show("Couldn't clear override — check your connection.", { type: "err" });
+    }
+  }
+
+  function startAiEdit() {
+    setAiEditing(true);
+    setAiSaveError(null);
+    const blank = {};
+    aiFields.forEach((f) => (blank[f.key] = ""));
+    setAiFormValues(blank);
+  }
+
+  async function saveAi() {
+    setAiSaving(true);
+    setAiSaveError(null);
+    try {
+      const res = await fetch("/api/settings/ai", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(aiFormValues),
+      });
+      if (!res.ok) {
+        const detail = await res.json().catch(() => ({}));
+        setAiSaveError(detail.detail || `HTTP ${res.status}`);
+        return;
+      }
+      setAiEditing(false);
+      await load();
+      toast.show("AI provider saved.", { type: "ok" });
+    } catch {
+      toast.show("Couldn't save — check your connection.", { type: "err" });
+    } finally {
+      setAiSaving(false);
     }
   }
 
@@ -168,74 +191,95 @@ export default function Integrations() {
           account, never stored in plaintext, never shown here once saved.
         </p>
 
-        <div className="feed-row">
-          <div className="row" style={{ gap: 8 }}>
-            <span className="feed-source">{aiStatus?.provider || "ai"}</span>
-            <span className={"badge " + (aiStatus?.configured ? "ok" : "warn")}>
-              {aiStatus?.configured ? "configured" : "not configured"}
-            </span>
-            {aiStatus?.override && <span className="tag accent">stored override</span>}
-            {aiResult && (
-              <span style={{ color: aiResult.ok ? "var(--ok)" : "var(--err)" }}>{aiResult.detail}</span>
-            )}
-          </div>
-          <div className="row" style={{ gap: 8 }}>
-            <button onClick={() => (aiEditing ? setAiEditing(false) : startAiEdit())}>
-              {aiEditing ? "Cancel" : aiStatus?.override ? "Edit" : "Set up"}
-            </button>
-            {aiStatus?.override && (
-              <button className="danger" onClick={clearAi}>
-                Clear override
-              </button>
-            )}
-            <button disabled={!aiStatus?.configured || aiTesting} onClick={testAi}>
-              {aiTesting ? "Testing…" : "Test connection"}
-            </button>
-          </div>
-        </div>
-
-        {aiEditing && (
-          <div style={{ padding: "4px 0 0 0" }}>
-            <div className="row" style={{ alignItems: "flex-end" }}>
-              {aiFields.map((f) =>
-                f.options ? (
-                  <div className="field" key={f.key}>
-                    <label>{f.label}</label>
-                    <select
-                      value={aiFormValues[f.key] || ""}
-                      onChange={(e) => setAiFormValues((v) => ({ ...v, [f.key]: e.target.value }))}
-                    >
-                      <option value="">{aiStatus?.override ? "Leave unchanged" : "anthropic (default)"}</option>
-                      {f.options.map((opt) => (
-                        <option key={opt} value={opt}>
-                          {opt}
-                        </option>
-                      ))}
-                    </select>
-                  </div>
+        {aiStatus === null ? (
+          <Skeleton height={54} radius={12} />
+        ) : (
+        <Card status={aiStatus?.configured ? "ok" : "warn"}>
+          <div className="row" style={{ justifyContent: "space-between" }}>
+            <div className="row" style={{ gap: 10 }}>
+              <StatusDot status={aiStatus?.configured ? "ok" : "muted"} />
+              <span style={{ fontWeight: 600 }}>{aiStatus?.provider || "ai"}</span>
+              {aiStatus?.override && <span className="tag accent">stored override</span>}
+              {aiResult && (
+                <span style={{ color: aiResult.ok ? "var(--ok)" : "var(--err)", fontSize: 13 }}>{aiResult.detail}</span>
+              )}
+            </div>
+            <div className="row" style={{ gap: 8 }}>
+              <Button onClick={() => (aiEditing ? setAiEditing(false) : startAiEdit())}>
+                {aiEditing ? "Cancel" : aiStatus?.override ? "Edit" : "Set up"}
+              </Button>
+              {aiStatus?.override && (
+                confirmClearAi ? (
+                  <>
+                    <span className="placeholder" style={{ fontSize: 13 }}>Clear this override?</span>
+                    <Button variant="danger" onClick={clearAi}>Confirm</Button>
+                    <Button variant="ghost" onClick={() => setConfirmClearAi(false)}>Cancel</Button>
+                  </>
                 ) : (
-                  <div className="field" key={f.key}>
-                    <label>{f.label}</label>
-                    <input
-                      type={f.secret ? "password" : "text"}
-                      placeholder={aiStatus?.override ? "Leave blank to keep current value" : "Optional"}
-                      value={aiFormValues[f.key] || ""}
-                      onChange={(e) => setAiFormValues((v) => ({ ...v, [f.key]: e.target.value }))}
-                    />
-                  </div>
+                  <Button variant="danger" onClick={() => setConfirmClearAi(true)}>
+                    Clear override
+                  </Button>
                 )
               )}
-              <button
-                className="primary"
-                disabled={aiSaving || !Object.values(aiFormValues).some((v) => v.trim())}
-                onClick={saveAi}
-              >
-                <Icon name="check" size={14} />
-                {aiSaving ? "Saving…" : "Save"}
-              </button>
+              <Button disabled={!aiStatus?.configured} loading={aiTesting} onClick={testAi}>
+                {aiTesting ? "Testing…" : "Test connection"}
+              </Button>
             </div>
-            {aiSaveError && <p style={{ color: "var(--err)", fontSize: 13, margin: "8px 0 0" }}>{aiSaveError}</p>}
           </div>
+
+          {aiEditing && (
+            <div style={{ padding: "14px 0 0 0" }}>
+              <div className="row" style={{ alignItems: "flex-end" }}>
+                {aiFields.map((f) =>
+                  f.options ? (
+                    <div className="field" key={f.key}>
+                      <label>{f.label}</label>
+                      <select
+                        value={aiFormValues[f.key] || ""}
+                        onChange={(e) => setAiFormValues((v) => ({ ...v, [f.key]: e.target.value }))}
+                      >
+                        <option value="">{aiStatus?.override ? "Leave unchanged" : "anthropic (default)"}</option>
+                        {f.options.map((opt) => (
+                          <option key={opt} value={opt}>
+                            {opt}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                  ) : (
+                    <div className="field" key={f.key}>
+                      <label>{f.label}</label>
+                      {f.secret ? (
+                        <RevealInput
+                          placeholder={aiStatus?.override ? "Leave blank to keep current value" : "Optional"}
+                          value={aiFormValues[f.key] || ""}
+                          onChange={(e) => setAiFormValues((v) => ({ ...v, [f.key]: e.target.value }))}
+                        />
+                      ) : (
+                        <input
+                          type="text"
+                          placeholder={aiStatus?.override ? "Leave blank to keep current value" : "Optional"}
+                          value={aiFormValues[f.key] || ""}
+                          onChange={(e) => setAiFormValues((v) => ({ ...v, [f.key]: e.target.value }))}
+                        />
+                      )}
+                    </div>
+                  )
+                )}
+                <Button
+                  variant="primary"
+                  icon="check"
+                  loading={aiSaving}
+                  disabled={!Object.values(aiFormValues).some((v) => v.trim())}
+                  onClick={saveAi}
+                >
+                  {aiSaving ? "Saving…" : "Save"}
+                </Button>
+              </div>
+              {aiSaveError && <p style={{ color: "var(--err)", fontSize: 13, margin: "8px 0 0" }}>{aiSaveError}</p>}
+            </div>
+          )}
+        </Card>
         )}
       </section>
 
@@ -246,67 +290,91 @@ export default function Integrations() {
           live connection status.
         </p>
 
-        {integrations.map((i) => (
-        <div key={i.name}>
-          <div className="feed-row">
-            <div className="row" style={{ gap: 8 }}>
-              <span className="feed-source">{integrationLabel(i.name)}</span>
-              <span className="feed-meta">{integrationRole(i.name)}</span>
-              <span className={"badge " + (i.configured ? "ok" : "warn")}>
-                {i.configured ? "configured" : "not configured"}
-              </span>
-              {i.override && <span className="tag accent">stored override</span>}
-              {results[i.name] && (
-                <span style={{ color: results[i.name].ok ? "var(--ok)" : "var(--err)" }}>
-                  {results[i.name].detail}
-                </span>
-              )}
-            </div>
-            <div className="row" style={{ gap: 8 }}>
-              {i.editable && (
-                <button onClick={() => (editing === i.name ? cancelEdit() : startEdit(i.name))}>
-                  {editing === i.name ? "Cancel" : i.override ? "Edit" : "Set up"}
-                </button>
-              )}
-              {i.override && (
-                <button className="danger" onClick={() => clearOverride(i.name)}>
-                  Clear override
-                </button>
-              )}
-              <button disabled={!i.configured || testing === i.name} onClick={() => test(i.name)}>
-                {testing === i.name ? "Testing…" : "Test connection"}
-              </button>
-            </div>
-          </div>
-
-          {editing === i.name && (
-            <div style={{ padding: "4px 0 16px 0" }}>
-              <div className="row" style={{ alignItems: "flex-end" }}>
-                {(fieldSchema[i.name] || []).map((f) => (
-                  <div className="field" key={f.key}>
-                    <label>{f.label}</label>
-                    <input
-                      type={f.secret ? "password" : "text"}
-                      placeholder={i.override ? "Leave blank to keep current value" : "Optional"}
-                      value={formValues[f.key] || ""}
-                      onChange={(e) => setFormValues((v) => ({ ...v, [f.key]: e.target.value }))}
-                    />
-                  </div>
-                ))}
-                <button
-                  className="primary"
-                  disabled={saving || !Object.values(formValues).some((v) => v.trim())}
-                  onClick={() => save(i.name)}
-                >
-                  <Icon name="check" size={14} />
-                  {saving ? "Saving…" : "Save"}
-                </button>
-              </div>
-              {saveError && <p style={{ color: "var(--err)", fontSize: 13, margin: "8px 0 0" }}>{saveError}</p>}
-            </div>
+        <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+          {integrations === null && (
+            <>
+              <Skeleton height={54} radius={12} />
+              <Skeleton height={54} radius={12} />
+              <Skeleton height={54} radius={12} />
+            </>
           )}
+          {integrations?.map((i) => (
+            <Card key={i.name} status={i.configured ? "ok" : "warn"}>
+              <div className="row" style={{ justifyContent: "space-between" }}>
+                <div className="row" style={{ gap: 10 }}>
+                  <StatusDot status={i.configured ? "ok" : "muted"} />
+                  <span style={{ fontWeight: 600 }}>{integrationLabel(i.name)}</span>
+                  <span className="feed-meta">{integrationRole(i.name)}</span>
+                  {i.override && <span className="tag accent">stored override</span>}
+                  {results[i.name] && (
+                    <span style={{ color: results[i.name].ok ? "var(--ok)" : "var(--err)", fontSize: 13 }}>
+                      {results[i.name].detail}
+                    </span>
+                  )}
+                </div>
+                <div className="row" style={{ gap: 8 }}>
+                  {i.editable && (
+                    <Button onClick={() => (editing === i.name ? cancelEdit() : startEdit(i.name))}>
+                      {editing === i.name ? "Cancel" : i.override ? "Edit" : "Set up"}
+                    </Button>
+                  )}
+                  {i.override && (
+                    confirmClear === i.name ? (
+                      <>
+                        <span className="placeholder" style={{ fontSize: 13 }}>Clear this override?</span>
+                        <Button variant="danger" onClick={() => clearOverride(i.name)}>Confirm</Button>
+                        <Button variant="ghost" onClick={() => setConfirmClear(null)}>Cancel</Button>
+                      </>
+                    ) : (
+                      <Button variant="danger" onClick={() => setConfirmClear(i.name)}>
+                        Clear override
+                      </Button>
+                    )
+                  )}
+                  <Button disabled={!i.configured} loading={testing === i.name} onClick={() => test(i.name)}>
+                    {testing === i.name ? "Testing…" : "Test connection"}
+                  </Button>
+                </div>
+              </div>
+
+              {editing === i.name && (
+                <div style={{ padding: "14px 0 0 0" }}>
+                  <div className="row" style={{ alignItems: "flex-end" }}>
+                    {(fieldSchema[i.name] || []).map((f) => (
+                      <div className="field" key={f.key}>
+                        <label>{f.label}</label>
+                        {f.secret ? (
+                          <RevealInput
+                            placeholder={i.override ? "Leave blank to keep current value" : "Optional"}
+                            value={formValues[f.key] || ""}
+                            onChange={(e) => setFormValues((v) => ({ ...v, [f.key]: e.target.value }))}
+                          />
+                        ) : (
+                          <input
+                            type="text"
+                            placeholder={i.override ? "Leave blank to keep current value" : "Optional"}
+                            value={formValues[f.key] || ""}
+                            onChange={(e) => setFormValues((v) => ({ ...v, [f.key]: e.target.value }))}
+                          />
+                        )}
+                      </div>
+                    ))}
+                    <Button
+                      variant="primary"
+                      icon="check"
+                      loading={saving}
+                      disabled={!Object.values(formValues).some((v) => v.trim())}
+                      onClick={() => save(i.name)}
+                    >
+                      {saving ? "Saving…" : "Save"}
+                    </Button>
+                  </div>
+                  {saveError && <p style={{ color: "var(--err)", fontSize: 13, margin: "8px 0 0" }}>{saveError}</p>}
+                </div>
+              )}
+            </Card>
+          ))}
         </div>
-        ))}
       </section>
     </>
   );

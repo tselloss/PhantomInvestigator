@@ -2,6 +2,8 @@ import { useState } from "react";
 import { Link, Navigate, useLocation, useSearchParams } from "react-router-dom";
 import { useAuth } from "../context/AuthContext";
 import GoogleSignInButton from "../components/GoogleSignInButton";
+import Icon from "../components/Icon";
+import Button from "../components/Button";
 
 export default function Login() {
   const { user, error, login } = useAuth();
@@ -11,6 +13,7 @@ export default function Login() {
   const [password, setPassword] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const googleError = searchParams.get("error") === "google_failed" ? "Google sign-in failed — try again." : null;
+  const [shakeNonce, setShakeNonce] = useState(googleError ? 1 : 0);
 
   if (user) {
     const dest = location.state?.from?.pathname || "/dashboard";
@@ -20,15 +23,16 @@ export default function Login() {
   async function handleSubmit(e) {
     e.preventDefault();
     setSubmitting(true);
-    await login(username, password);
+    const ok = await login(username, password);
     setSubmitting(false);
+    if (!ok) setShakeNonce((n) => n + 1);
   }
 
   return (
     <div className="auth-page" style={{ maxWidth: 380, margin: "0 auto" }}>
       <div style={{ textAlign: "center", marginBottom: 22 }}>
-        <span className="brand-mark hero-mark" style={{ width: 48, height: 48, fontSize: 24, margin: "0 auto 14px" }}>
-          👻
+        <span className="brand-mark hero-mark hero-mark-float" style={{ width: 48, height: 48, margin: "0 auto 14px" }}>
+          <Icon name="ghost" size={26} />
         </span>
         <h2 className="brand-shine" style={{ margin: "0 0 4px", fontSize: 19, fontWeight: 700 }}>
           Phantom Investigator
@@ -37,7 +41,7 @@ export default function Login() {
           Sign in to the operator console
         </p>
       </div>
-      <section>
+      <section key={shakeNonce} className={shakeNonce > 0 ? "shake" : undefined}>
         <form onSubmit={handleSubmit}>
           <div className="row" style={{ flexDirection: "column", alignItems: "stretch", gap: 14 }}>
             <div className="field">
@@ -61,9 +65,9 @@ export default function Login() {
                 onChange={(e) => setPassword(e.target.value)}
               />
             </div>
-            <button className="primary" type="submit" disabled={submitting} style={{ justifyContent: "center", marginTop: 4 }}>
+            <Button variant="primary" type="submit" loading={submitting} style={{ justifyContent: "center", marginTop: 4 }}>
               {submitting ? "Signing in…" : "Sign in"}
-            </button>
+            </Button>
             {(error || googleError) && <div className="alert err" style={{ margin: 0 }}>{error || googleError}</div>}
           </div>
         </form>

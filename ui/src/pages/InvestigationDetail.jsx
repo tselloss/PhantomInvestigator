@@ -1,11 +1,52 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import Icon from "../components/Icon";
+import Button from "../components/Button";
+import Card from "../components/Card";
+import Skeleton from "../components/Skeleton";
+import DiffView from "../components/DiffView";
+import InvestigationTimeline from "../components/InvestigationTimeline";
 import PostmortemView from "../components/PostmortemView";
+import { eventToLogEntry } from "../lib/investigationLog";
 import { useToast } from "../context/ToastContext";
 
 const FEEDBACK_LABELS = { correct: "Correct", partial: "Partially correct", incorrect: "Incorrect" };
 const FEEDBACK_BADGE_CLASS = { correct: "ok", partial: "warn", incorrect: "err" };
+
+function postmortemToMarkdown(pm, item) {
+  const lines = [
+    `# ${pm.title || "Untitled incident"}`,
+    "",
+    `- **Category:** ${pm.fault_category || "unknown"}`,
+    `- **Confidence:** ${Math.round((pm.confidence ?? 0) * 100)}%`,
+    `- **Source:** ${item.source}${item.source_ref ? " " + item.source_ref : ""}`,
+    `- **Investigated:** ${new Date(item.created_at).toLocaleString()}`,
+    "",
+    "## Root cause",
+    pm.root_cause || "",
+  ];
+  if (pm.timeline?.length) {
+    lines.push("", "## Timeline", ...pm.timeline.map((t) => `- ${t}`));
+  }
+  if (pm.evidence?.length) {
+    lines.push("", "## Evidence", ...pm.evidence.map((e) => `- **${e.source}:** ${e.detail}`));
+  }
+  lines.push("", "## Suggested fix", pm.suggested_fix || "");
+  if (pm.contributing_factors?.length) {
+    lines.push("", "## Contributing factors", ...pm.contributing_factors.map((f) => `- **${f.fault_category}:** ${f.description}`));
+  }
+  return lines.join("\n");
+}
+
+function downloadFile(filename, content, mime) {
+  const blob = new Blob([content], { type: mime });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = filename;
+  a.click();
+  URL.revokeObjectURL(url);
+}
 
 export default function InvestigationDetail() {
   const { id } = useParams();
@@ -16,6 +57,8 @@ export default function InvestigationDetail() {
   const [rerunning, setRerunning] = useState(false);
   const [deployments, setDeployments] = useState([]);
   const [resolvingPost, setResolvingPost] = useState(false);
+  const [resolvingFix, setResolvingFix] = useState(false);
+  const [selectedBranch, setSelectedBranch] = useState(null);
   const [editingFeedback, setEditingFeedback] = useState(false);
   const [feedbackNotes, setFeedbackNotes] = useState("");
   const [savingFeedback, setSavingFeedback] = useState(false);
@@ -32,6 +75,7 @@ export default function InvestigationDetail() {
 
   useEffect(() => {
     load();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [id]);
 
   useEffect(() => {
@@ -42,6 +86,8 @@ export default function InvestigationDetail() {
   }, []);
 
   const deployment = item?.deployment_id != null ? deployments.find((d) => d.id === item.deployment_id) : null;
+  const pm = item?.result?.postmortem;
+  const timelineLog = useMemo(() => (item?.trace || []).map(eventToLogEntry).filter(Boolean), [item?.trace]);
 
   async function resolvePendingPost(action) {
     setResolvingPost(true);
@@ -52,12 +98,41 @@ export default function InvestigationDetail() {
         toast.show(detail.detail || `That didn't go through (HTTP ${res.status}).`, { type: "err" });
         return;
       }
+      const pendingType = item?.pending_action?.type;
       setItem(await res.json());
-      toast.show(action === "approve-post" ? "Posted to Jira." : "Discarded.", { type: "ok" });
+      if (action !== "approve-post") {
+        toast.show("Discarded.", { type: "ok" });
+      } else {
+        toast.show(pendingType === "azure_devops_comment" ? "Posted to Azure DevOps." : "Posted to Jira.", { type: "ok" });
+      }
     } catch {
       toast.show("Couldn't reach the server — check your connection.", { type: "err" });
     } finally {
       setResolvingPost(false);
+    }
+  }
+
+  async function resolvePendingFix(action) {
+    setResolvingFix(true);
+    try {
+      const res = await fetch(`/api/investigations/${id}/${action}`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(action === "approve-fix" ? { target_branch: selectedBranch } : {}),
+      });
+      if (!res.ok) {
+        const detail = await res.json().catch(() => ({}));
+        toast.show(detail.detail || `That didn't go through (HTTP ${res.status}).`, { type: "err" });
+        return;
+      }
+      const body = await res.json();
+      setItem(body);
+      setSelectedBranch(null);
+      toast.show(action === "approve-fix" ? "Pull request opened." : "Discarded.", { type: "ok" });
+    } catch {
+      toast.show("Couldn't reach the server — check your connection.", { type: "err" });
+    } finally {
+      setResolvingFix(false);
     }
   }
 
@@ -107,19 +182,35 @@ export default function InvestigationDetail() {
     }
   }
 
+  async function copyLink() {
+    try {
+      await navigator.clipboard.writeText(window.location.href);
+      toast.show("Link copied.", { type: "ok" });
+    } catch {
+      toast.show("Couldn't copy the link — your browser blocked clipboard access.", { type: "err" });
+    }
+  }
+
+  function exportPostmortem() {
+    if (pm) {
+      downloadFile(`investigation-${item.id}.md`, postmortemToMarkdown(pm, item), "text/markdown");
+    } else {
+      downloadFile(`investigation-${item.id}.json`, JSON.stringify(item, null, 2), "application/json");
+    }
+  }
+
   if (error) return <div className="alert err">Couldn't load investigation: {error}</div>;
   if (!item) {
     return (
       <section>
-        <div className="skeleton" style={{ width: 160, height: 16, marginBottom: 18 }} />
-        <div className="skeleton" style={{ width: "70%", height: 12, marginBottom: 10 }} />
-        <div className="skeleton" style={{ width: "40%", height: 12, marginBottom: 22 }} />
-        <div className="skeleton" style={{ width: "100%", height: 80 }} />
+        <Skeleton width={160} height={16} style={{ marginBottom: 18 }} />
+        <Skeleton width="70%" height={12} style={{ marginBottom: 10 }} />
+        <Skeleton width="40%" height={12} style={{ marginBottom: 22 }} />
+        <Skeleton height={80} />
       </section>
     );
   }
 
-  const pm = item.result?.postmortem;
   const sourceLink =
     item.source === "jira" && item.source_ref && item.jira_url
       ? { href: item.jira_url, label: `Jira ${item.source_ref}` }
@@ -139,9 +230,15 @@ export default function InvestigationDetail() {
           Back to investigations
         </Link>
         <div className="row">
-          <button className="primary" disabled={rerunning} onClick={rerun}>
+          <Button variant="ghost" icon="link" onClick={copyLink}>
+            Copy link
+          </Button>
+          <Button variant="ghost" icon="download" onClick={exportPostmortem}>
+            Export
+          </Button>
+          <Button variant="primary" loading={rerunning} onClick={rerun}>
             {rerunning ? "Starting…" : "Re-run"}
-          </button>
+          </Button>
         </div>
       </div>
 
@@ -175,21 +272,86 @@ export default function InvestigationDetail() {
             </div>
             <pre style={{ margin: 0, whiteSpace: "pre-wrap" }}>{item.pending_action.body}</pre>
             <div className="row">
-              <button className="primary" disabled={resolvingPost} onClick={() => resolvePendingPost("approve-post")}>
-                <Icon name="check" size={14} />
+              <Button variant="primary" icon="check" loading={resolvingPost} onClick={() => resolvePendingPost("approve-post")}>
                 {resolvingPost ? "Posting…" : "Post to Jira"}
-              </button>
-              <button disabled={resolvingPost} onClick={() => resolvePendingPost("dismiss-post")}>
-                <Icon name="x" size={14} />
+              </Button>
+              <Button icon="x" disabled={resolvingPost} onClick={() => resolvePendingPost("dismiss-post")}>
                 Discard
-              </button>
+              </Button>
+            </div>
+          </div>
+        )}
+
+        {item.status === "awaiting_approval" && item.pending_action?.type === "azure_devops_comment" && (
+          <div className="alert warn" style={{ flexDirection: "column", alignItems: "stretch", gap: 10 }}>
+            <div className="row" style={{ gap: 6 }}>
+              <Icon name="inbox" size={15} />
+              <span>Ready to post to Azure DevOps work item {item.pending_action.work_item_id} — review before sending:</span>
+            </div>
+            <pre style={{ margin: 0, whiteSpace: "pre-wrap" }}>{item.pending_action.body}</pre>
+            <div className="row">
+              <Button variant="primary" icon="check" loading={resolvingPost} onClick={() => resolvePendingPost("approve-post")}>
+                {resolvingPost ? "Posting…" : "Post to Azure DevOps"}
+              </Button>
+              <Button icon="x" disabled={resolvingPost} onClick={() => resolvePendingPost("dismiss-post")}>
+                Discard
+              </Button>
+            </div>
+          </div>
+        )}
+
+        {item.status === "awaiting_approval" && item.pending_fix_action && (
+          <div className="alert warn" style={{ flexDirection: "column", alignItems: "stretch", gap: 10 }}>
+            <div className="row" style={{ gap: 6 }}>
+              <Icon name="inbox" size={15} />
+              <span>
+                Ready to open a pull request on <strong>{item.pending_fix_action.repo}</strong> — review the diff
+                before pushing:
+              </span>
+            </div>
+            {item.pending_fix_action.files.map((f) => (
+              <DiffView key={f.path} path={f.path} diff={f.diff} />
+            ))}
+            <div className="row">
+              {item.pending_fix_action.allowed_base_branches.length > 1 ? (
+                <div className="field" style={{ minWidth: 160, flex: "none" }}>
+                  <label>Target branch</label>
+                  <select
+                    value={selectedBranch ?? item.pending_fix_action.default_branch}
+                    onChange={(e) => setSelectedBranch(e.target.value)}
+                  >
+                    {item.pending_fix_action.allowed_base_branches.map((b) => (
+                      <option key={b} value={b}>
+                        {b}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              ) : (
+                <span className="tag">{item.pending_fix_action.default_branch}</span>
+              )}
+            </div>
+            <div className="row">
+              <Button variant="primary" icon="check" loading={resolvingFix} onClick={() => resolvePendingFix("approve-fix")}>
+                {resolvingFix ? "Opening…" : "Open pull request"}
+              </Button>
+              <Button icon="x" disabled={resolvingFix} onClick={() => resolvePendingFix("dismiss-fix")}>
+                Discard
+              </Button>
             </div>
           </div>
         )}
 
         {pm ? <PostmortemView pm={pm} /> : <pre>{item.result?.result || "No structured postmortem for this run."}</pre>}
 
-        <div className="panel" style={{ marginTop: 16 }}>
+        {timelineLog.length > 0 && (
+          <Card style={{ marginTop: 16 }}>
+            <h3 style={{ marginTop: 0, marginBottom: 14 }}>Timeline</h3>
+            <InvestigationTimeline log={timelineLog} running={false} />
+          </Card>
+        )}
+
+        <Card style={{ marginTop: 16 }}>
           <h3 style={{ marginTop: 0 }}>Feedback</h3>
           {item.feedback_rating && !editingFeedback ? (
             <div>
@@ -197,14 +359,14 @@ export default function InvestigationDetail() {
                 Marked <strong>{FEEDBACK_LABELS[item.feedback_rating]}</strong>
                 {item.feedback_notes ? `: ${item.feedback_notes}` : "."}
               </p>
-              <button
+              <Button
                 onClick={() => {
                   setFeedbackNotes(item.feedback_notes || "");
                   setEditingFeedback(true);
                 }}
               >
                 Edit feedback
-              </button>
+              </Button>
             </div>
           ) : (
             <div>
@@ -220,21 +382,19 @@ export default function InvestigationDetail() {
                 style={{ width: "100%", marginBottom: 8 }}
               />
               <div className="row">
-                <button disabled={savingFeedback} onClick={() => submitFeedback("correct")}>
-                  <Icon name="check" size={14} />
+                <Button disabled={savingFeedback} icon="check" onClick={() => submitFeedback("correct")}>
                   Correct
-                </button>
-                <button disabled={savingFeedback} onClick={() => submitFeedback("partial")}>
+                </Button>
+                <Button disabled={savingFeedback} onClick={() => submitFeedback("partial")}>
                   Partially correct
-                </button>
-                <button disabled={savingFeedback} onClick={() => submitFeedback("incorrect")}>
-                  <Icon name="x" size={14} />
+                </Button>
+                <Button disabled={savingFeedback} icon="x" onClick={() => submitFeedback("incorrect")}>
                   Incorrect
-                </button>
+                </Button>
               </div>
             </div>
           )}
-        </div>
+        </Card>
       </div>
     </section>
   );
