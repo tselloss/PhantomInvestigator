@@ -29,7 +29,7 @@ const FEATURES = [
   },
 ];
 
-const KINETIC_WORDS = ["Jira tickets", "failed CI runs", "Prometheus spikes", "Slack alerts", "on-call pages"];
+const KINETIC_WORDS = ["Jira tickets", "failed CI runs", "Prometheus spikes", "CloudWatch alarms", "Azure Monitor alerts"];
 
 const DEMO_SCRIPT = [
   { kind: "step", text: "Step 1" },
