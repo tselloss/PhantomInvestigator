@@ -8,6 +8,7 @@ import { ToastProvider } from "./context/ToastContext";
 import Login from "./pages/Login";
 import Register from "./pages/Register";
 import Terms from "./pages/Terms";
+import Docs from "./pages/Docs";
 import Home from "./pages/Home";
 import Dashboard from "./pages/Dashboard";
 import Investigate from "./pages/Investigate";
@@ -30,6 +31,7 @@ function App() {
               <Route path="/login" element={<Login />} />
               <Route path="/register" element={<Register />} />
               <Route path="/terms" element={<Terms />} />
+              <Route path="/docs" element={<Docs />} />
               <Route element={<RequireAuth />}>
                 <Route element={<Layout />}>
                   <Route path="/dashboard" element={<Dashboard />} />

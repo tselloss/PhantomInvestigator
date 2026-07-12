@@ -169,3 +169,9 @@ Needs a stable public endpoint (small VPS) instead of a tunnel for anything beyo
 - **docs/GLOSSARY.md** — every AI-engineering term you'll meet, explained
 - **docs/TIPS.md** — hard-won tips & tricks
 - **docs/decisions.md** — running log of non-obvious design decisions and why (carried over from AIInvestigator, extended here)
+
+## License
+
+All rights reserved — see [LICENSE](LICENSE). This repository is public for
+review purposes; it is not open-source, and reuse, redistribution, or running
+your own deployment of it is not permitted without written permission.

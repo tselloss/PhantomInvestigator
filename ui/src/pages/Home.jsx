@@ -25,7 +25,7 @@ const FEATURES = [
     id: "byok",
     icon: "dollar",
     title: "Bring your own AI provider",
-    description: "Free and open-source to self-host. Usage is billed directly to your account, never ours.",
+    description: "Usage is billed directly to your own provider account, never ours.",
   },
 ];
 
@@ -143,7 +143,7 @@ export default function Home() {
             </div>
             <div className="row" style={{ marginTop: 14, gap: 8 }}>
               <span className="tag">Self-hosted</span>
-              <span className="tag">Open-source</span>
+              <span className="tag">Private by design</span>
               <span className="tag">Bring your own key</span>
             </div>
           </div>
@@ -165,6 +165,7 @@ export default function Home() {
           Create an account and add your own AI provider key to get started.
         </p>
         <div className="row landing-footer-links" style={{ justifyContent: "center", gap: 16 }}>
+          <Link to="/docs">Documentation</Link>
           <a href="https://github.com/tselloss" target="_blank" rel="noopener noreferrer">
             GitHub
           </a>
