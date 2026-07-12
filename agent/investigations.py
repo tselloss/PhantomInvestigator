@@ -5,6 +5,7 @@ set it to whoever is logged in; webhook triggers set it to the resolved
 deployment's owner (see routes/webhooks.py)."""
 import json
 import os
+from datetime import datetime, timedelta, timezone
 
 import psycopg
 
@@ -277,7 +278,7 @@ def set_feedback(
 
 def stats(owner_user_id: int, days: int = 7, deployment_id: int | None = None) -> dict:
     query = (
-        "SELECT status, result FROM investigations "
+        "SELECT status, result, created_at FROM investigations "
         "WHERE owner_user_id = %s AND created_at >= now() - (%s || ' days')::interval"
     )
     params = [owner_user_id, days]
@@ -289,12 +290,29 @@ def stats(owner_user_id: int, days: int = 7, deployment_id: int | None = None) -
 
     by_status: dict[str, int] = {}
     total_cost = 0.0
-    for status, result in rows:
+    daily_counts: dict[str, int] = {}
+    for status, result, created_at in rows:
         by_status[status] = by_status.get(status, 0) + 1
         if result:
             total_cost += (result.get("usage") or {}).get("cost_usd", 0) or 0
+        day_key = created_at.date().isoformat()
+        daily_counts[day_key] = daily_counts.get(day_key, 0) + 1
 
-    return {"total": len(rows), "by_status": by_status, "total_cost_usd": round(total_cost, 4), "period_days": days}
+    # Zero-fill every day in the window (not just days with activity) so the
+    # dashboard sparkline has a fixed number of points to plot.
+    today = datetime.now(timezone.utc).date()
+    daily = [
+        {"date": (day := today - timedelta(days=offset)).isoformat(), "count": daily_counts.get(day.isoformat(), 0)}
+        for offset in range(days - 1, -1, -1)
+    ]
+
+    return {
+        "total": len(rows),
+        "by_status": by_status,
+        "total_cost_usd": round(total_cost, 4),
+        "period_days": days,
+        "daily": daily,
+    }
 
 
 def monthly_cost_usd(owner_user_id: int) -> float:
