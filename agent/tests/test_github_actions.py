@@ -1,3 +1,5 @@
+import base64
+
 import httpx
 import respx
 
@@ -156,3 +158,121 @@ def test_get_deploy_diff_passes_deployment_id_to_config(monkeypatch):
     monkeypatch.setattr(ga, "_config", _fake_config_capturing(captured))
     ga.get_deploy_diff("owner/repo", "main", "feature", 1, deployment_id=42)
     assert captured["deployment_id"] == 42
+
+
+def test_get_file_contents_requires_token(monkeypatch):
+    monkeypatch.setattr(ga, "GITHUB_TOKEN", "")
+    assert ga.get_file_contents("owner/repo", "x.py", "main", 1).startswith("ERROR")
+
+
+def test_get_file_contents_returns_demo_data_when_demo_mode_enabled(monkeypatch):
+    monkeypatch.setattr(ga, "GITHUB_TOKEN", "")
+    monkeypatch.setattr(ga.users, "get_demo_mode", lambda user_id: True)
+    result = ga.get_file_contents("owner/repo", "x.py", "main", 1)
+    assert "DEMO DATA" in result
+
+
+@respx.mock
+def test_get_file_contents_returns_decoded_text(monkeypatch):
+    monkeypatch.setattr(ga, "GITHUB_TOKEN", "tok")
+    content = "line one\nline two\n"
+    respx.get("https://api.github.com/repos/owner/repo/contents/tests/x.py").mock(
+        return_value=httpx.Response(
+            200,
+            json={"size": len(content), "encoding": "base64", "content": base64.b64encode(content.encode()).decode()},
+        )
+    )
+    assert ga.get_file_contents("owner/repo", "tests/x.py", "main", 1) == content
+
+
+@respx.mock
+def test_get_file_contents_too_large(monkeypatch):
+    monkeypatch.setattr(ga, "GITHUB_TOKEN", "tok")
+    respx.get("https://api.github.com/repos/owner/repo/contents/big.py").mock(
+        return_value=httpx.Response(
+            200, json={"size": ga.FILE_CONTENTS_MAX_BYTES + 1, "encoding": "base64", "content": ""}
+        )
+    )
+    result = ga.get_file_contents("owner/repo", "big.py", "main", 1)
+    assert result.startswith("ERROR")
+    assert "too large" in result
+
+
+@respx.mock
+def test_get_file_contents_directory_errors(monkeypatch):
+    monkeypatch.setattr(ga, "GITHUB_TOKEN", "tok")
+    respx.get("https://api.github.com/repos/owner/repo/contents/some_dir").mock(
+        return_value=httpx.Response(200, json=[{"name": "a.py"}, {"name": "b.py"}])
+    )
+    result = ga.get_file_contents("owner/repo", "some_dir", "main", 1)
+    assert result.startswith("ERROR")
+    assert "directory" in result
+
+
+@respx.mock
+def test_get_file_contents_http_error(monkeypatch):
+    monkeypatch.setattr(ga, "GITHUB_TOKEN", "tok")
+    monkeypatch.setattr("tools._http.time.sleep", lambda s: None)
+    respx.get("https://api.github.com/repos/owner/repo/contents/missing.py").mock(return_value=httpx.Response(404))
+    assert ga.get_file_contents("owner/repo", "missing.py", "main", 1).startswith("ERROR")
+
+
+def test_open_fix_pull_request_requires_token(monkeypatch):
+    monkeypatch.setattr(ga, "GITHUB_TOKEN", "")
+    result = ga.open_fix_pull_request("owner/repo", "main", [], "t", "b", 7, 1)
+    assert result == {"ok": False, "error": "GITHUB_TOKEN not configured"}
+
+
+@respx.mock
+def test_open_fix_pull_request_happy_path(monkeypatch):
+    monkeypatch.setattr(ga, "GITHUB_TOKEN", "tok")
+    respx.get("https://api.github.com/repos/owner/repo/git/ref/heads/main").mock(
+        return_value=httpx.Response(200, json={"object": {"sha": "basesha123"}})
+    )
+    respx.post("https://api.github.com/repos/owner/repo/git/refs").mock(
+        return_value=httpx.Response(201, json={"ref": "refs/heads/phantom-fix/7"})
+    )
+    respx.get("https://api.github.com/repos/owner/repo/contents/tests/x.py").mock(
+        return_value=httpx.Response(200, json={"sha": "filesha456"})
+    )
+    respx.put("https://api.github.com/repos/owner/repo/contents/tests/x.py").mock(
+        return_value=httpx.Response(200, json={"commit": {"sha": "newcommitsha"}})
+    )
+    respx.post("https://api.github.com/repos/owner/repo/pulls").mock(
+        return_value=httpx.Response(201, json={"html_url": "https://github.com/owner/repo/pull/9"})
+    )
+    result = ga.open_fix_pull_request(
+        "owner/repo", "main", [{"path": "tests/x.py", "content": "new content"}], "Fix flaky test", "body", 7, 1,
+    )
+    assert result == {"ok": True, "pr_url": "https://github.com/owner/repo/pull/9", "branch": "phantom-fix/7"}
+
+
+@respx.mock
+def test_open_fix_pull_request_branch_already_exists(monkeypatch):
+    monkeypatch.setattr(ga, "GITHUB_TOKEN", "tok")
+    monkeypatch.setattr("tools._http.time.sleep", lambda s: None)
+    respx.get("https://api.github.com/repos/owner/repo/git/ref/heads/main").mock(
+        return_value=httpx.Response(200, json={"object": {"sha": "basesha123"}})
+    )
+    respx.post("https://api.github.com/repos/owner/repo/git/refs").mock(return_value=httpx.Response(422))
+    result = ga.open_fix_pull_request(
+        "owner/repo", "main", [{"path": "tests/x.py", "content": "new content"}], "Fix flaky test", "body", 7, 1,
+    )
+    assert result["ok"] is False
+    assert "already exists" in result["error"]
+
+
+@respx.mock
+def test_open_fix_pull_request_file_missing_on_branch(monkeypatch):
+    monkeypatch.setattr(ga, "GITHUB_TOKEN", "tok")
+    monkeypatch.setattr("tools._http.time.sleep", lambda s: None)
+    respx.get("https://api.github.com/repos/owner/repo/git/ref/heads/main").mock(
+        return_value=httpx.Response(200, json={"object": {"sha": "basesha123"}})
+    )
+    respx.post("https://api.github.com/repos/owner/repo/git/refs").mock(return_value=httpx.Response(201, json={}))
+    respx.get("https://api.github.com/repos/owner/repo/contents/tests/x.py").mock(return_value=httpx.Response(404))
+    result = ga.open_fix_pull_request(
+        "owner/repo", "main", [{"path": "tests/x.py", "content": "new content"}], "Fix flaky test", "body", 7, 1,
+    )
+    assert result["ok"] is False
+    assert "does not exist" in result["error"]

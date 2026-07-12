@@ -18,19 +18,33 @@ def test_execute_tool_threads_deployment_id_to_azure_devops_work_item(monkeypatc
     assert tools.execute_tool("get_azure_devops_work_item", {"work_item_id": 42, "deployment_id": 7}, 1) == 7
 
 
-def test_execute_tool_threads_deployment_id_to_azure_devops_comment(monkeypatch):
-    captured = {}
-
-    def fake_post_comment(work_item_id, comment, user_id, deployment_id=None):
-        captured.update(work_item_id=work_item_id, comment=comment, user_id=user_id, deployment_id=deployment_id)
-        return "ok"
-
-    monkeypatch.setattr(tools.azure_devops, "post_comment", fake_post_comment)
-    result = tools.execute_tool(
-        "post_azure_devops_comment", {"work_item_id": 42, "comment": "root cause", "deployment_id": 7}, 1
+def test_execute_tool_threads_deployment_id_to_azure_devops_commits(monkeypatch):
+    monkeypatch.setattr(
+        tools.azure_devops, "get_recent_commits", lambda user_id, deployment_id=None, days=7: (deployment_id, days)
     )
-    assert result == "ok"
-    assert captured == {"work_item_id": 42, "comment": "root cause", "user_id": 1, "deployment_id": 7}
+    assert tools.execute_tool("get_azure_devops_commits", {"deployment_id": 7}, 1) == (7, 7)
+    assert tools.execute_tool("get_azure_devops_commits", {"deployment_id": 7, "days": 3}, 1) == (7, 3)
+
+
+def test_execute_tool_threads_deployment_id_to_azure_devops_builds(monkeypatch):
+    monkeypatch.setattr(
+        tools.azure_devops, "get_recent_builds",
+        lambda user_id, deployment_id=None, hours=24, failed_only=False: (deployment_id, hours, failed_only),
+    )
+    assert tools.execute_tool("get_azure_devops_builds", {"deployment_id": 7}, 1) == (7, 24, False)
+    assert tools.execute_tool(
+        "get_azure_devops_builds", {"deployment_id": 7, "hours": 6, "failed_only": True}, 1
+    ) == (7, 6, True)
+
+
+def test_execute_tool_threads_deployment_id_to_azure_devops_work_item_search(monkeypatch):
+    monkeypatch.setattr(
+        tools.azure_devops, "search_work_items",
+        lambda query, user_id, deployment_id=None, days=7: (query, deployment_id, days),
+    )
+    assert tools.execute_tool(
+        "search_azure_devops_work_items", {"query": "checkout", "deployment_id": 7}, 1
+    ) == ("checkout", 7, 7)
 
 
 def test_execute_tool_threads_deployment_id_to_query_metrics(monkeypatch):

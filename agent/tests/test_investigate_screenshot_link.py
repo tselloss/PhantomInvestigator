@@ -91,6 +91,20 @@ def test_investigate_stream_links_screenshot_when_id_provided(monkeypatch):
     mock_link.assert_called_once_with(9, 60)
 
 
+def test_investigate_stream_includes_investigation_id_on_success(monkeypatch):
+    monkeypatch.setattr(main.investigations, "start", lambda *a, **kw: 71)
+    monkeypatch.setattr(main.investigations, "finish", lambda *a, **kw: None)
+
+    def fake_stream(alert_text, owner_user_id, deployment_id=None):
+        yield {"type": "final", "data": {"postmortem": None}}
+
+    with patch.object(loop, "run_agent_stream", side_effect=fake_stream):
+        resp = client.get("/api/investigate/stream", params={"alert": "checkout down"})
+
+    assert resp.status_code == 200
+    assert '"investigation_id": 71' in resp.text
+
+
 def test_investigate_returns_deduped_response_without_running_agent(monkeypatch):
     existing = {"id": 40, "result": {"postmortem": None, "usage": {"cost_usd": 0.01}}}
     monkeypatch.setattr(main.investigations, "find_recent_duplicate", lambda *a, **kw: existing)

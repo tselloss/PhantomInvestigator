@@ -33,6 +33,7 @@ class _FakeConn:
                 "created_at": "2026-01-01T00:00:00Z", "finished_at": None,
                 "deployment_id": deployment_id, "owner_user_id": owner_user_id,
                 "pending_action": None, "feedback_rating": None, "feedback_notes": None,
+                "pending_fix_action": None,
             }
             self._result = (row_id,)
         elif sql.startswith("SELECT") and "FROM investigations WHERE id = %s AND owner_user_id = %s" in sql:

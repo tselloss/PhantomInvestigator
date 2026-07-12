@@ -80,6 +80,16 @@ def github_deploy_diff(repo: str, base: str, head: str) -> str:
     )
 
 
+def github_file_contents(repo: str, path: str, ref: str) -> str:
+    return (
+        f"[DEMO DATA -- no GitHub token configured for {repo}:{path}@{ref}]\n"
+        "database:\n"
+        "  host: checkout-db.internal\n"
+        "  pool_size: 5\n"
+        "  pool_timeout_ms: 3000\n"
+    )
+
+
 def azure_devops_work_item(work_item_id: int) -> str:
     return (
         f"Work item: {work_item_id} [DEMO DATA -- no Azure DevOps org/project/PAT configured]\n"
@@ -96,6 +106,42 @@ def azure_devops_work_item(work_item_id: int) -> str:
 
 def azure_devops_post_comment(work_item_id: int) -> str:
     return f"[demo mode] Comment posted to work item {work_item_id} (no real Azure DevOps org configured)"
+
+
+def azure_devops_recent_commits() -> str:
+    return (
+        "[DEMO DATA -- no Azure DevOps org/project/PAT configured]\n"
+        "- checkout-service a1b2c3d | jdoe | 2026-07-10T14:02:11Z | trim idle DB connections\n"
+        "- checkout-service f9e8d7c | jdoe | 2026-07-09T09:15:44Z | bump base image\n"
+        "- platform-shared 7c6b5a4 | asmith | 2026-07-08T16:40:02Z | update logging lib"
+    )
+
+
+def azure_devops_recent_builds(failed_only: bool = False) -> str:
+    if failed_only:
+        return "[DEMO DATA -- no Azure DevOps org/project/PAT configured]\nNo failed builds in the requested window."
+    return (
+        "[DEMO DATA -- no Azure DevOps org/project/PAT configured]\n"
+        "- build 8842 | deploy-checkout-service | completed/succeeded | branch=main | "
+        "sha=a1b2c3d | 2026-07-10T14:02:11Z\n"
+        "- build 8839 | ci | completed/succeeded | branch=main | sha=f9e8d7c | 2026-07-09T09:16:02Z"
+    )
+
+
+def azure_devops_search_work_items(query: str) -> str:
+    return (
+        f"[DEMO DATA -- no Azure DevOps org/project/PAT configured, query='{query}']\n"
+        f"- #4821 [Bug] {_TITLE} (Active, changed 2026-07-10T14:11:00Z)"
+    )
+
+
+def azure_devops_recent_work_items() -> list[dict]:
+    return [
+        {
+            "source": "azure_devops", "id": 4821, "title": _TITLE, "type": "Bug", "status": "Active",
+            "updated": "2026-07-10T14:11:00Z", "url": None,
+        },
+    ]
 
 
 def azure_monitor_logs(kql: str) -> str:

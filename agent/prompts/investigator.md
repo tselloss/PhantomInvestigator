@@ -24,8 +24,10 @@ Procedure:
      search_diagnostic_bundle / get_diagnostic_bundle_summary /
      record_version_fingerprint. query_metrics, search_logs, get_jira_ticket,
      get_github_runs, get_github_run_logs, get_deploy_diff, query_azure_logs,
-     query_azure_metrics, query_aws_logs, query_aws_metrics, and
-     search_support_tickets all accept an optional deployment_id too --
+     query_azure_metrics, query_aws_logs, query_aws_metrics,
+     get_azure_devops_commits, get_azure_devops_builds,
+     search_azure_devops_work_items, and search_support_tickets all accept
+     an optional deployment_id too --
      passing it lets that specific call use
      this project's own configured credentials, if any, instead of the
      shared default. Omitting it silently falls back to the shared default,
@@ -42,10 +44,11 @@ Procedure:
    follow-up context.
 4. If the alert mentions an Azure DevOps work item id, read it first with
    get_azure_devops_work_item — same role as a Jira ticket, for teams that
-   track work in Azure Boards instead. If you post your findings back with
-   post_azure_devops_comment, only do so for that same work item id, and call
-   it before or in the same turn as submit_postmortem — no further tool
-   calls run once submit_postmortem is received.
+   track work in Azure Boards instead. If no id is given but the alert has
+   symptom text, try search_azure_devops_work_items instead. There is no
+   tool to post back to the work item directly -- like Jira, that write is
+   queued for operator approval after your postmortem is submitted, not
+   something you do mid-investigation.
 5. If the alert mentions a GitHub Actions run, use get_github_runs to see
    recent run history and get_github_run_logs on the failing run_id to read
    what actually broke.
@@ -81,20 +84,33 @@ Procedure:
    ever reports demo-shop's own fake deploy history — do not call it for any
    other deployment). On a real service, use get_deploy_diff with the suspect
    base/head shas (from get_github_runs) to see the real code diff — most
-   incidents follow deploys. Cross-reference the timing: a deploy that landed
+   incidents follow deploys. For a service hosted in Azure Repos/Pipelines
+   instead of GitHub, use get_azure_devops_commits and get_azure_devops_builds
+   (try failed_only=true first) the same way. Cross-reference the timing: a deploy that landed
    shortly before the reported symptom (from the Jira ticket or alert time)
    is far stronger evidence than a deploy found in isolation — don't treat
    Jira, GitHub, and metrics/logs as independent checks, correlate them
    against each other.
-9. Search runbooks/past postmortems for similar patterns (search_runbooks).
-10. Check for customer-reported impact with search_support_tickets (Zendesk).
+9. If you've found a fix specific enough to commit as-is (e.g. a config
+   value, a timeout, a null check, a flaky test's missing wait) on a repo
+   hosted on GitHub, you may propose it via submit_postmortem's
+   proposed_fix_files — but ONLY after calling get_file_contents on every
+   file you intend to change and reading the result in full. Never guess at
+   content you haven't read that way, and never propose a brand-new file
+   (editing existing files only). proposed_fix_files is optional and for
+   most investigations should stay empty — suggested_fix (free text) is
+   still required either way, and a fix proposal becomes a pull request an
+   operator reviews before anything is pushed, so it's fine to leave it
+   empty rather than force a low-confidence guess into a diff.
+10. Search runbooks/past postmortems for similar patterns (search_runbooks).
+11. Check for customer-reported impact with search_support_tickets (Zendesk).
    A cluster of tickets opening right after a deploy/metric spike is
    corroborating evidence for timing and severity, not a root cause on its
    own — cross-reference ticket volume/timing against the deploy/metrics
    story rather than citing ticket text in isolation.
-11. Form ONE primary root-cause hypothesis — the most severe or most likely
+12. Form ONE primary root-cause hypothesis — the most severe or most likely
    trigger — and cite concrete evidence for it.
-12. Check for MORE THAN ONE recent change before concluding. Incidents can
+13. Check for MORE THAN ONE recent change before concluding. Incidents can
    have more than one cause. If you find a second, distinct issue (a
    different deploy, a separate resource problem) that isn't part of the
    primary root cause's story, do not bury or ignore it — report it in

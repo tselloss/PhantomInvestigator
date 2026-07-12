@@ -186,3 +186,117 @@ def test_dismiss_pending_post_resolves_without_posting(monkeypatch):
     resp = client.post("/api/investigations/3/dismiss-post")
     assert resp.status_code == 200
     assert resp.json()["status"] == "done"
+
+
+PENDING_FIX = {
+    "type": "github_pr", "repo": "owner/repo", "allowed_base_branches": ["main", "staging"],
+    "default_branch": "main", "files": [{"path": "tests/x.py", "content": "new", "diff": "..."}],
+    "pr_title": "Fix flaky test", "pr_body": "body",
+}
+DEPLOYMENT = {"id": 42, "allowed_base_branches": ["main", "staging"]}
+
+
+def test_approve_pending_fix_opens_pr_and_resolves(monkeypatch):
+    item = {"id": 3, "deployment_id": 42, "pending_fix_action": dict(PENDING_FIX)}
+    monkeypatch.setattr(investigations.store, "get_by_id", lambda investigation_id, owner_user_id: item)
+    monkeypatch.setattr(investigations.clients, "get_deployment", lambda deployment_id, owner_user_id: DEPLOYMENT)
+    opened = {}
+
+    def fake_open(repo, target_branch, files, title, body, investigation_id, user_id, deployment_id=None):
+        opened.update(
+            repo=repo, target_branch=target_branch, files=files, title=title, body=body,
+            investigation_id=investigation_id, user_id=user_id, deployment_id=deployment_id,
+        )
+        return {"ok": True, "pr_url": "https://github.com/owner/repo/pull/9", "branch": "phantom-fix/3"}
+
+    monkeypatch.setattr(investigations.github_actions, "open_fix_pull_request", fake_open)
+    resolved = {}
+    monkeypatch.setattr(
+        investigations.store, "resolve_pending_fix_action",
+        lambda investigation_id, owner_user_id: resolved.update(investigation_id=investigation_id, owner_user_id=owner_user_id)
+        or {"id": investigation_id, "status": "done", "pending_fix_action": None},
+    )
+
+    resp = client.post("/api/investigations/3/approve-fix", json={})
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["status"] == "done"
+    assert body["pr_url"] == "https://github.com/owner/repo/pull/9"
+    assert opened["target_branch"] == "main"
+    assert opened["repo"] == "owner/repo"
+    assert opened["investigation_id"] == 3
+    assert opened["deployment_id"] == 42
+    assert resolved == {"investigation_id": 3, "owner_user_id": 1}
+
+
+def test_approve_pending_fix_uses_explicitly_selected_branch(monkeypatch):
+    item = {"id": 3, "deployment_id": 42, "pending_fix_action": dict(PENDING_FIX)}
+    monkeypatch.setattr(investigations.store, "get_by_id", lambda investigation_id, owner_user_id: item)
+    monkeypatch.setattr(investigations.clients, "get_deployment", lambda deployment_id, owner_user_id: DEPLOYMENT)
+    opened = {}
+    monkeypatch.setattr(
+        investigations.github_actions, "open_fix_pull_request",
+        lambda repo, target_branch, *a, **kw: opened.update(target_branch=target_branch)
+        or {"ok": True, "pr_url": "https://x", "branch": "phantom-fix/3"},
+    )
+    monkeypatch.setattr(investigations.store, "resolve_pending_fix_action", lambda investigation_id, owner_user_id: {"id": 3, "status": "done"})
+
+    resp = client.post("/api/investigations/3/approve-fix", json={"target_branch": "staging"})
+    assert resp.status_code == 200
+    assert opened["target_branch"] == "staging"
+
+
+def test_approve_pending_fix_rejects_branch_not_in_live_allowlist(monkeypatch):
+    """The allowlist is re-checked against the deployment's CURRENT config,
+    not the snapshot captured in pending_fix_action -- an operator may have
+    edited it since the proposal was built."""
+    item = {"id": 3, "deployment_id": 42, "pending_fix_action": dict(PENDING_FIX)}
+    monkeypatch.setattr(investigations.store, "get_by_id", lambda investigation_id, owner_user_id: item)
+    monkeypatch.setattr(investigations.clients, "get_deployment", lambda deployment_id, owner_user_id: {"id": 42, "allowed_base_branches": ["main"]})
+
+    def fail_open(*a, **kw):
+        raise AssertionError("must not open a PR against a branch outside the live allowlist")
+
+    monkeypatch.setattr(investigations.github_actions, "open_fix_pull_request", fail_open)
+
+    resp = client.post("/api/investigations/3/approve-fix", json={"target_branch": "staging"})
+    assert resp.status_code == 400
+
+
+def test_approve_pending_fix_400_when_no_pending_fix_action(monkeypatch):
+    monkeypatch.setattr(investigations.store, "get_by_id", lambda investigation_id, owner_user_id: {"id": 3, "pending_fix_action": None})
+    resp = client.post("/api/investigations/3/approve-fix", json={})
+    assert resp.status_code == 400
+
+
+def test_approve_pending_fix_502_when_open_fails(monkeypatch):
+    item = {"id": 3, "deployment_id": 42, "pending_fix_action": dict(PENDING_FIX)}
+    monkeypatch.setattr(investigations.store, "get_by_id", lambda investigation_id, owner_user_id: item)
+    monkeypatch.setattr(investigations.clients, "get_deployment", lambda deployment_id, owner_user_id: DEPLOYMENT)
+    monkeypatch.setattr(
+        investigations.github_actions, "open_fix_pull_request",
+        lambda *a, **kw: {"ok": False, "error": "branch already exists"},
+    )
+    resp = client.post("/api/investigations/3/approve-fix", json={})
+    assert resp.status_code == 502
+
+
+def test_dismiss_pending_fix_resolves_without_opening_pr(monkeypatch):
+    item = {"id": 3, "pending_fix_action": dict(PENDING_FIX)}
+    monkeypatch.setattr(investigations.store, "get_by_id", lambda investigation_id, owner_user_id: item)
+    monkeypatch.setattr(investigations.store, "resolve_pending_fix_action", lambda investigation_id, owner_user_id: {"id": 3, "status": "done"})
+
+    def fail_open(*a, **kw):
+        raise AssertionError("dismiss must not open a PR")
+
+    monkeypatch.setattr(investigations.github_actions, "open_fix_pull_request", fail_open)
+
+    resp = client.post("/api/investigations/3/dismiss-fix")
+    assert resp.status_code == 200
+    assert resp.json()["status"] == "done"
+
+
+def test_dismiss_pending_fix_400_when_no_pending_fix_action(monkeypatch):
+    monkeypatch.setattr(investigations.store, "get_by_id", lambda investigation_id, owner_user_id: {"id": 3, "pending_fix_action": None})
+    resp = client.post("/api/investigations/3/dismiss-fix")
+    assert resp.status_code == 400

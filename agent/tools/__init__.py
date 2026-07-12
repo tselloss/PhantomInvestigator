@@ -106,22 +106,51 @@ TOOL_SCHEMAS = [
         },
     },
     {
-        "name": "post_azure_devops_comment",
+        "name": "get_azure_devops_commits",
         "description": (
-            "Post a comment onto an Azure Boards work item -- a real, visible write action, not a "
-            "draft. Only call this for the SAME work item id the alert referenced (from "
-            "get_azure_devops_work_item), and only once you have your findings ready: no further "
-            "tool calls run after submit_postmortem is received, so call this before or in the "
-            "same turn as submit_postmortem, not after."
+            "List recent commits across all repos in the configured Azure DevOps project -- "
+            "\"what shipped\" recently. Azure Repos equivalent of get_deploy_diff for teams whose "
+            "code doesn't live on GitHub."
         ),
         "input_schema": {
             "type": "object",
             "properties": {
-                "work_item_id": {"type": "integer"},
-                "comment": {"type": "string", "description": "Plain text -- root cause and suggested fix"},
+                "days": {"type": "integer", "default": 7, "description": "How many days back to look"},
                 "deployment_id": DEPLOYMENT_ID_PROPERTY,
             },
-            "required": ["work_item_id", "comment"],
+        },
+    },
+    {
+        "name": "get_azure_devops_builds",
+        "description": (
+            "List recent Azure Pipelines builds for the configured project, optionally filtered to "
+            "failed builds only. Check this early for CI/CD-triggered incidents -- the money query "
+            "during an incident is usually whether the last build failed."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "hours": {"type": "integer", "default": 24, "description": "How many hours back to look"},
+                "failed_only": {"type": "boolean", "default": False},
+                "deployment_id": DEPLOYMENT_ID_PROPERTY,
+            },
+        },
+    },
+    {
+        "name": "search_azure_devops_work_items",
+        "description": (
+            "Search Azure Boards work items changed in the last N days whose title matches a query -- "
+            "the Azure Boards equivalent of a Jira JQL search. Use when the alert doesn't name a "
+            "specific work item id."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "query": {"type": "string", "description": "Free-text search terms, e.g. 'checkout error'"},
+                "days": {"type": "integer", "default": 7},
+                "deployment_id": DEPLOYMENT_ID_PROPERTY,
+            },
+            "required": ["query"],
         },
     },
     {
@@ -165,6 +194,26 @@ TOOL_SCHEMAS = [
                 "deployment_id": DEPLOYMENT_ID_PROPERTY,
             },
             "required": ["repo", "base", "head"],
+        },
+    },
+    {
+        "name": "get_file_contents",
+        "description": (
+            "Fetch the COMPLETE current content of one file from a GitHub repo at a ref. "
+            "Call this and read the result in full before including that file in "
+            "submit_postmortem's proposed_fix_files -- never propose an edit to a file you "
+            "haven't read this way. Errors (including 'file too large') mean that file is "
+            "off-limits for proposed_fix_files this run."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "repo": {"type": "string", "description": "'owner/name'"},
+                "path": {"type": "string", "description": "Repo-relative file path"},
+                "ref": {"type": "string", "description": "Branch, tag, or commit sha to read at"},
+                "deployment_id": DEPLOYMENT_ID_PROPERTY,
+            },
+            "required": ["repo", "path", "ref"],
         },
     },
     {
@@ -340,10 +389,13 @@ def execute_tool(name: str, args: dict, owner_user_id: int) -> str:
             case "search_runbooks":   return runbooks.search(args["query"], owner_user_id)
             case "get_jira_ticket":   return jira.get_ticket(args["key"], owner_user_id, deployment_id=args.get("deployment_id"))
             case "get_azure_devops_work_item": return azure_devops.get_work_item(args["work_item_id"], owner_user_id, deployment_id=args.get("deployment_id"))
-            case "post_azure_devops_comment": return azure_devops.post_comment(args["work_item_id"], args["comment"], owner_user_id, deployment_id=args.get("deployment_id"))
+            case "get_azure_devops_commits": return azure_devops.get_recent_commits(owner_user_id, deployment_id=args.get("deployment_id"), days=args.get("days", 7))
+            case "get_azure_devops_builds": return azure_devops.get_recent_builds(owner_user_id, deployment_id=args.get("deployment_id"), hours=args.get("hours", 24), failed_only=args.get("failed_only", False))
+            case "search_azure_devops_work_items": return azure_devops.search_work_items(args["query"], owner_user_id, deployment_id=args.get("deployment_id"), days=args.get("days", 7))
             case "get_github_runs":   return github_actions.get_recent_runs(args["repo"], owner_user_id, deployment_id=args.get("deployment_id"))
             case "get_github_run_logs": return github_actions.get_run_logs(args["repo"], args["run_id"], owner_user_id, deployment_id=args.get("deployment_id"))
             case "get_deploy_diff":   return github_actions.get_deploy_diff(args["repo"], args["base"], args["head"], owner_user_id, deployment_id=args.get("deployment_id"))
+            case "get_file_contents": return github_actions.get_file_contents(args["repo"], args["path"], args["ref"], owner_user_id, deployment_id=args.get("deployment_id"))
             case "query_azure_logs":  return azure_monitor.query_logs(args["kql"], owner_user_id, deployment_id=args.get("deployment_id"))
             case "query_azure_metrics": return azure_monitor.query_metrics(args["resource_id"], args["metric_namespace"], args["metric_names"], owner_user_id, deployment_id=args.get("deployment_id"))
             case "search_support_tickets": return zendesk.search_tickets(args["query"], owner_user_id, deployment_id=args.get("deployment_id"))

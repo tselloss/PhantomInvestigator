@@ -206,7 +206,10 @@ def test_integration(user_id: int, name: str) -> dict:
             cfg = azure_devops._config(user_id)
             resp = httpx.get(
                 f"https://dev.azure.com/{cfg['organization']}/_apis/connectionData",
-                params={"api-version": "7.1"},
+                # connectionData is a preview resource -- plain "7.1" 400s with
+                # VssInvalidPreviewVersionException on orgs that haven't opted
+                # it out of preview, unlike wit/git/build which take "7.1" as-is.
+                params={"api-version": "7.1-preview.1"},
                 auth=("", cfg["pat"]),
                 timeout=10.0,
             )
@@ -342,7 +345,7 @@ def test_client_integration(client_id: int, user_id: int, name: str) -> dict:
             cfg = azure_devops._config(user_id, client_id=client_id)
             resp = httpx.get(
                 f"https://dev.azure.com/{cfg['organization']}/_apis/connectionData",
-                params={"api-version": "7.1"},
+                params={"api-version": "7.1-preview.1"},
                 auth=("", cfg["pat"]),
                 timeout=10.0,
             )

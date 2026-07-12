@@ -30,6 +30,8 @@ class DeploymentCreate(BaseModel):
     environment: str = "production"
     jira_project_key: str | None = None
     github_repo: str | None = None
+    azure_devops_project: str | None = None
+    allowed_base_branches: list[str] | None = None
 
 
 class DeploymentUpdate(BaseModel):
@@ -37,6 +39,8 @@ class DeploymentUpdate(BaseModel):
     environment: str = "production"
     jira_project_key: str | None = None
     github_repo: str | None = None
+    azure_devops_project: str | None = None
+    allowed_base_branches: list[str] | None = None
 
 
 @router.get("")
@@ -95,7 +99,8 @@ def create_deployment(client_id: int, body: DeploymentCreate, user: dict = Depen
     if not store.get_client(client_id, user["user_id"]):
         raise HTTPException(404, "client not found")
     return store.create_deployment(
-        client_id, user["user_id"], body.label, body.environment, body.jira_project_key, body.github_repo
+        client_id, user["user_id"], body.label, body.environment,
+        body.jira_project_key, body.github_repo, body.azure_devops_project, body.allowed_base_branches,
     )
 
 
@@ -117,7 +122,8 @@ def update_deployment(client_id: int, deployment_id: int, body: DeploymentUpdate
     if not existing or existing["client_id"] != client_id:
         raise HTTPException(404, "deployment not found")
     return store.update_deployment(
-        deployment_id, user["user_id"], body.label, body.environment, body.jira_project_key, body.github_repo
+        deployment_id, user["user_id"], body.label, body.environment,
+        body.jira_project_key, body.github_repo, body.azure_devops_project, body.allowed_base_branches,
     )
 
 

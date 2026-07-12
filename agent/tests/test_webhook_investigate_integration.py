@@ -78,6 +78,34 @@ def test_no_pending_action_without_jira_key(monkeypatch):
     assert kwargs["pending_action"] is None
 
 
+def test_runs_and_queues_pending_azure_devops_comment_when_postmortem_produced(monkeypatch):
+    postmortem = {"title": "orders-api 502s", "confidence": 0.9, "root_cause": "timeout too low", "suggested_fix": "revert"}
+    finish_mock = _patch_happy_path(monkeypatch, postmortem=postmortem)
+
+    webhooks._investigate_and_report("azure_devops", "42", "alert", owner_user_id=1, azure_devops_work_item_id=42)
+
+    finish_mock.assert_called_once()
+    kwargs = finish_mock.call_args.kwargs
+    assert kwargs["pending_action"]["type"] == "azure_devops_comment"
+    assert kwargs["pending_action"]["work_item_id"] == 42
+    assert "orders-api 502s" in kwargs["pending_action"]["body"]
+
+
+def test_jira_key_takes_precedence_over_azure_devops_work_item_id(monkeypatch):
+    """Only one of these should ever be set by a real caller (each webhook
+    handler passes exactly one), but if both were somehow present, Jira
+    winning is an arbitrary-but-deterministic choice, not a real requirement."""
+    postmortem = {"title": "x", "confidence": 0.5, "root_cause": "y", "suggested_fix": "z"}
+    finish_mock = _patch_happy_path(monkeypatch, postmortem=postmortem)
+
+    webhooks._investigate_and_report(
+        "jira", "OPS-1", "alert", jira_key="OPS-1", owner_user_id=1, azure_devops_work_item_id=42
+    )
+
+    kwargs = finish_mock.call_args.kwargs
+    assert kwargs["pending_action"]["type"] == "jira_comment"
+
+
 def test_finishes_partial_when_no_postmortem_produced(monkeypatch):
     finish_mock = _patch_happy_path(monkeypatch, postmortem=None)
 
@@ -87,3 +115,34 @@ def test_finishes_partial_when_no_postmortem_produced(monkeypatch):
     kwargs = finish_mock.call_args.kwargs
     assert args[1] == "partial"
     assert kwargs["pending_action"] is None
+    assert kwargs["pending_fix_action"] is None
+
+
+def test_no_pending_fix_action_without_deployment_id(monkeypatch):
+    """No deployment_id means no deployment to look up -- clients.get_deployment
+    must not even be called (it isn't mocked here, so a call would hit a real
+    DB and fail the test), and pending_fix_action stays None."""
+    postmortem = {"title": "x", "confidence": 0.5, "root_cause": "y", "suggested_fix": "z"}
+    finish_mock = _patch_happy_path(monkeypatch, postmortem=postmortem)
+
+    webhooks._investigate_and_report("jira", "OPS-1", "alert", jira_key="OPS-1", owner_user_id=1)
+
+    assert finish_mock.call_args.kwargs["pending_fix_action"] is None
+
+
+def test_queues_pending_fix_action_when_build_pending_fix_action_returns_one(monkeypatch):
+    postmortem = {
+        "title": "Flaky checkout test", "confidence": 0.8, "root_cause": "missing wait",
+        "suggested_fix": "add wait", "proposed_fix_files": [{"path": "tests/x.spec.js", "content": "new"}],
+    }
+    finish_mock = _patch_happy_path(monkeypatch, postmortem=postmortem)
+    deployment = {"id": 42, "github_repo": "owner/repo", "allowed_base_branches": ["main"]}
+    monkeypatch.setattr(webhooks.clients, "get_deployment", lambda deployment_id, owner_user_id: deployment)
+    fake_pending_fix = {"type": "github_pr", "repo": "owner/repo"}
+    build_mock = MagicMock(return_value=fake_pending_fix)
+    monkeypatch.setattr(webhooks.fix_proposals, "build_pending_fix_action", build_mock)
+
+    webhooks._investigate_and_report("jira", "OPS-1", "alert", jira_key="OPS-1", deployment_id=42, owner_user_id=1)
+
+    assert finish_mock.call_args.kwargs["pending_fix_action"] == fake_pending_fix
+    build_mock.assert_called_once_with(postmortem, deployment, [], 1)

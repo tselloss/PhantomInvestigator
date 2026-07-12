@@ -78,6 +78,41 @@ def test_update_deployment_delegates(monkeypatch):
     assert resp.json()["label"] == "prod-eu"
 
 
+def test_update_deployment_passes_allowed_base_branches_through(monkeypatch):
+    monkeypatch.setattr(clients.store, "get_deployment", lambda deployment_id, owner_user_id: DEPLOYMENT)
+    captured = {}
+
+    def fake_update(deployment_id, owner_user_id, label, environment, jira_project_key, github_repo, azure_devops_project, allowed_base_branches):
+        captured.update(allowed_base_branches=allowed_base_branches)
+        return {**DEPLOYMENT, "allowed_base_branches": allowed_base_branches}
+
+    monkeypatch.setattr(clients.store, "update_deployment", fake_update)
+    resp = client.patch(
+        "/api/clients/7/deployments/42",
+        json={"label": "prod", "allowed_base_branches": ["main", "staging"]},
+    )
+    assert resp.status_code == 200
+    assert captured["allowed_base_branches"] == ["main", "staging"]
+    assert resp.json()["allowed_base_branches"] == ["main", "staging"]
+
+
+def test_create_deployment_passes_allowed_base_branches_through(monkeypatch):
+    monkeypatch.setattr(clients.store, "get_client", lambda client_id, owner_user_id: CLIENT)
+    captured = {}
+
+    def fake_create(client_id, owner_user_id, label, environment, jira_project_key, github_repo, azure_devops_project, allowed_base_branches):
+        captured.update(allowed_base_branches=allowed_base_branches)
+        return {**DEPLOYMENT, "allowed_base_branches": allowed_base_branches}
+
+    monkeypatch.setattr(clients.store, "create_deployment", fake_create)
+    resp = client.post(
+        "/api/clients/7/deployments",
+        json={"label": "prod", "allowed_base_branches": ["main"]},
+    )
+    assert resp.status_code == 200
+    assert captured["allowed_base_branches"] == ["main"]
+
+
 def test_archive_deployment_404_when_owned_by_different_client(monkeypatch):
     monkeypatch.setattr(clients.store, "get_deployment", lambda deployment_id, owner_user_id: DEPLOYMENT)
     resp = client.delete("/api/clients/999/deployments/42")

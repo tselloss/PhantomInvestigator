@@ -1,16 +1,18 @@
-"""Webhook entry points for real-source triggers: Jira ticket events and
-GitHub Actions failures. Both hand off to the agent loop as a background
-task -- webhook callers expect a fast response, not a 20-40s wait for the
-investigation to finish."""
+"""Webhook entry points for real-source triggers: Jira ticket events,
+GitHub Actions failures, and Azure DevOps work item events. All hand off to
+the agent loop as a background task -- webhook callers expect a fast
+response, not a 20-40s wait for the investigation to finish."""
 import hashlib
 import hmac
 import os
+import re
 
 import structlog
 from fastapi import APIRouter, BackgroundTasks, Header, HTTPException, Request
 
 import billing
 import clients
+import fix_proposals
 import investigations
 from loop import run_agent
 
@@ -21,6 +23,13 @@ router = APIRouter(prefix="/webhooks")
 JIRA_WEBHOOK_SECRET = os.environ.get("JIRA_WEBHOOK_SECRET", "")
 GITHUB_WEBHOOK_SECRET = os.environ.get("GITHUB_WEBHOOK_SECRET", "")
 GITHUB_REPO = os.environ.get("GITHUB_REPO", "")
+AZURE_DEVOPS_WEBHOOK_SECRET = os.environ.get("AZURE_DEVOPS_WEBHOOK_SECRET", "")
+
+# Azure DevOps Service Hooks fire on every field edit, not just meaningful
+# ones -- restrict to work item types that actually mean "something's
+# broken" so routine backlog grooming doesn't trigger an investigation.
+# "Issue" covers the Basic process template, which has no "Bug" type at all.
+AZURE_DEVOPS_BUG_TYPES = {"bug", "issue"}
 
 
 def _resolve_deployment(finder, key: str | None) -> tuple[int | None, int | None, str]:
@@ -52,6 +61,7 @@ def _investigate_and_report(
     jira_key: str | None = None,
     deployment_id: int | None = None,
     owner_user_id: int | None = None,
+    azure_devops_work_item_id: int | None = None,
 ):
     """Runs inside a BackgroundTasks worker (not the request thread) -- fine
     to block here. Records the run for the UI's activity feed, and posts the
@@ -91,21 +101,38 @@ def _investigate_and_report(
     result = run_agent(loop_alert_text, owner_user_id, deployment_id=deployment_id)
     pm = result.get("postmortem") if result else None
 
-    # Posting to Jira is a high-stakes, externally-visible write -- instead
-    # of firing it unattended the moment the loop finishes, queue it as a
-    # pending_action for an operator to approve or dismiss from the UI (see
-    # routes/investigations.py's approve-post/dismiss-post).
+    # Posting back to the ticket is a high-stakes, externally-visible write --
+    # instead of firing it unattended the moment the loop finishes, queue it
+    # as a pending_action for an operator to approve or dismiss from the UI
+    # (see routes/investigations.py's approve-post/dismiss-post).
     pending_action = None
-    if jira_key and pm:
+    if pm:
         body = (
             f"[Phantom Investigator] {pm['title']}\n\n"
             f"Root cause ({pm['confidence']:.0%} confidence): {pm['root_cause']}\n\n"
             f"Suggested fix: {pm['suggested_fix']}"
         )
-        pending_action = {"type": "jira_comment", "key": jira_key, "body": body}
+        if jira_key:
+            pending_action = {"type": "jira_comment", "key": jira_key, "body": body}
+        elif azure_devops_work_item_id:
+            pending_action = {"type": "azure_devops_comment", "work_item_id": azure_devops_work_item_id, "body": body}
+
+    # Same idea as pending_action above, for a proposed code fix instead of
+    # a ticket comment -- see fix_proposals.build_pending_fix_action for the
+    # gates (deployment must opt in via allowed_base_branches, every
+    # proposed file must have actually been read this run). Only looks up
+    # the deployment at all when there's a postmortem to fold it into --
+    # same "nothing to do" short-circuit pending_action already has above.
+    pending_fix_action = None
+    if pm:
+        deployment = clients.get_deployment(deployment_id, owner_user_id) if deployment_id else None
+        pending_fix_action = fix_proposals.build_pending_fix_action(
+            pm, deployment, result.get("files_read", []), owner_user_id
+        )
 
     investigations.finish(
-        investigation_id, "done" if pm else "partial", result or {}, pending_action=pending_action
+        investigation_id, "done" if pm else "partial", result or {},
+        pending_action=pending_action, pending_fix_action=pending_fix_action,
     )
 
 
@@ -157,3 +184,54 @@ async def github_webhook(
         _investigate_and_report, "github", str(run.get("id")), alert_text, None, deployment_id, owner_user_id
     )
     return {"accepted": True, "run_id": run.get("id")}
+
+
+def _parse_azure_devops_org(url: str) -> str | None:
+    """Work item URLs come in either the current dev.azure.com/{org}/...
+    shape or the legacy {org}.visualstudio.com/... shape, tenant-dependent
+    -- try both rather than assuming one."""
+    match = re.match(r"https://dev\.azure\.com/([^/]+)/", url) or re.match(r"https://([^.]+)\.visualstudio\.com/", url)
+    return match.group(1) if match else None
+
+
+@router.post("/azure_devops")
+async def azure_devops_webhook(request: Request, background_tasks: BackgroundTasks, secret: str = ""):
+    if not AZURE_DEVOPS_WEBHOOK_SECRET or not hmac.compare_digest(secret, AZURE_DEVOPS_WEBHOOK_SECRET):
+        raise HTTPException(401, "invalid webhook secret")
+
+    payload = await request.json()
+    event_type = payload.get("eventType", "")
+    if event_type not in ("workitem.created", "workitem.updated"):
+        return {"accepted": False, "reason": f"ignoring event type {event_type!r}"}
+
+    resource = payload.get("resource", {})
+    work_item_id = resource.get("workItemId") or resource.get("id")
+    if not work_item_id:
+        raise HTTPException(400, "no work item id in payload")
+
+    # workitem.updated's top-level resource.fields is a {oldValue, newValue}
+    # diff of only the fields that changed -- e.g. a State-only change has no
+    # System.Title/WorkItemType/TeamProject in it at all. The full current
+    # snapshot (plain values) is under resource.revision.fields instead.
+    # workitem.created has no "revision" key and resource.fields IS already
+    # the full snapshot, so falling back to it there is correct too.
+    fields = resource.get("revision", {}).get("fields") or resource.get("fields", {})
+    work_item_type = fields.get("System.WorkItemType", "")
+    if work_item_type.lower() not in AZURE_DEVOPS_BUG_TYPES:
+        return {"accepted": False, "reason": f"ignoring work item type {work_item_type!r}"}
+
+    title = fields.get("System.Title", "")
+    team_project = fields.get("System.TeamProject", "")
+    organization = _parse_azure_devops_org(resource.get("url", ""))
+    project_key = f"{organization}/{team_project}" if organization and team_project else None
+
+    deployment_id, owner_user_id, deployment_note = _resolve_deployment(
+        clients.find_deployment_by_azure_devops_project, project_key
+    )
+    alert_text = f"{deployment_note}Azure DevOps work item {work_item_id} ({work_item_type}): {title}. Investigate."
+
+    background_tasks.add_task(
+        _investigate_and_report, "azure_devops", str(work_item_id), alert_text, None,
+        deployment_id, owner_user_id, azure_devops_work_item_id=work_item_id,
+    )
+    return {"accepted": True, "work_item_id": work_item_id}

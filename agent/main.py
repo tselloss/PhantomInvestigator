@@ -16,6 +16,7 @@ from starlette.middleware.base import BaseHTTPMiddleware
 import billing
 import clients
 import diagnostics
+import fix_proposals
 import investigations
 import screenshots
 import vision
@@ -177,7 +178,16 @@ async def investigate(req: InvestigateRequest, user: dict = Depends(get_current_
     except Exception as e:
         investigations.finish(investigation_id, "error", {"error": f"{type(e).__name__}: {e}"})
         raise
-    investigations.finish(investigation_id, "done" if result.get("postmortem") else "partial", result)
+    pending_fix_action = None
+    if result.get("postmortem"):
+        deployment = clients.get_deployment(req.deployment_id, user_id) if req.deployment_id else None
+        pending_fix_action = fix_proposals.build_pending_fix_action(
+            result["postmortem"], deployment, result.get("files_read", []), user_id
+        )
+    investigations.finish(
+        investigation_id, "done" if result.get("postmortem") else "partial", result,
+        pending_fix_action=pending_fix_action,
+    )
     return {**result, "investigation_id": investigation_id, "deduped": False}
 
 
@@ -220,18 +230,34 @@ async def investigate_stream(
         if screenshot_id is not None:
             screenshots.link_to_investigation(screenshot_id, investigation_id)
         loop_alert_text = clients.build_loop_alert_text(alert_text, investigation_id, deployment_id, user_id)
+        # trace records step_start/tool_call/tool_result (not "final" -- that's
+        # already stored as result) so the detail page can replay this run's
+        # timeline later, including a partial trace on an errored/cut-short run.
+        trace = []
         result = None
         try:
             for event in run_agent_stream(loop_alert_text, user_id, deployment_id=deployment_id):
                 if event["type"] == "final":
+                    event["data"]["investigation_id"] = investigation_id
                     result = event["data"]
+                else:
+                    trace.append(event)
                 yield f"data: {json.dumps(event)}\n\n"
         except Exception as e:
-            investigations.finish(investigation_id, "error", {"error": f"{type(e).__name__}: {e}"})
+            investigations.finish(investigation_id, "error", {"error": f"{type(e).__name__}: {e}"}, trace=trace)
             error_data = {"result": f"ERROR: {e}", "partial": True, "investigation_id": investigation_id}
             yield f"data: {json.dumps({'type': 'final', 'data': error_data})}\n\n"
             return
-        investigations.finish(investigation_id, "done" if (result or {}).get("postmortem") else "partial", result or {})
+        pending_fix_action = None
+        if (result or {}).get("postmortem"):
+            deployment = clients.get_deployment(deployment_id, user_id) if deployment_id else None
+            pending_fix_action = fix_proposals.build_pending_fix_action(
+                result["postmortem"], deployment, result.get("files_read", []), user_id
+            )
+        investigations.finish(
+            investigation_id, "done" if (result or {}).get("postmortem") else "partial", result or {},
+            pending_fix_action=pending_fix_action, trace=trace,
+        )
 
     return StreamingResponse(event_gen(), media_type="text/event-stream")
 

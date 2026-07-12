@@ -14,6 +14,17 @@ class ContributingFactor(BaseModel):
     fault_category: str = Field(description="best-guess category, same enum as Postmortem.fault_category")
     evidence: list[Evidence] = Field(default_factory=list)
 
+class FileEdit(BaseModel):
+    path: str = Field(description=(
+        "Repo-relative path, e.g. 'tests/checkout_flow.spec.js'. Must be a file you "
+        "read IN FULL with get_file_contents earlier in this investigation — never a "
+        "file you haven't read, and never a new file (editing existing files only)."
+    ))
+    content: str = Field(description=(
+        "The file's COMPLETE new content, not a diff or a snippet — this replaces the "
+        "current content verbatim, so it must include every unchanged line too."
+    ))
+
 class Postmortem(BaseModel):
     title: str
     root_cause: str
@@ -51,5 +62,16 @@ class Postmortem(BaseModel):
             "you found only one issue. Do not fold a second cause into "
             "root_cause/fault_category above — if you noticed something else "
             "going on, report it here instead of silently ignoring it."
+        ),
+    )
+    proposed_fix_files: list[FileEdit] | None = Field(
+        default=None,
+        description=(
+            "A concrete, ready-to-commit code fix (one or a few files) — ONLY when you "
+            "found a fix specific enough to commit as-is, and only for files you already "
+            "read in full via get_file_contents this run. Leave null for most "
+            "investigations; suggested_fix (free text) above is still required either "
+            "way. This may become a pull request an operator reviews and approves, so "
+            "keep changes minimal and scoped to the root cause."
         ),
     )

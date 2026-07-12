@@ -48,13 +48,27 @@ ALTER TABLE investigations ADD COLUMN IF NOT EXISTS owner_user_id INTEGER;
 ALTER TABLE investigations ADD COLUMN IF NOT EXISTS pending_action JSONB;
 ALTER TABLE investigations ADD COLUMN IF NOT EXISTS feedback_rating TEXT;
 ALTER TABLE investigations ADD COLUMN IF NOT EXISTS feedback_notes TEXT;
+ALTER TABLE investigations ADD COLUMN IF NOT EXISTS trace JSONB;
+ALTER TABLE investigations ADD COLUMN IF NOT EXISTS pending_fix_action JSONB;
 """
 
+# pending_fix_action is a second, independent high-stakes-write slot
+# alongside pending_action: a proposed code fix (branch/commit/PR) awaiting
+# operator approval, built by fix_proposals.build_pending_fix_action(). Kept
+# as its own column rather than folding into pending_action so the existing
+# jira_comment/azure_devops_comment single-dict contract (and its tests)
+# never has to change shape. See resolve_pending_action/
+# resolve_pending_fix_action for how the two are reconciled into `status`.
 _COLUMNS = [
     "id", "source", "source_ref", "alert_text", "status", "result",
     "reviewed", "created_at", "finished_at", "deployment_id", "owner_user_id",
-    "pending_action", "feedback_rating", "feedback_notes",
+    "pending_action", "feedback_rating", "feedback_notes", "pending_fix_action",
 ]
+# trace (the raw step_start/tool_call/tool_result event log, for replaying an
+# investigation's timeline) is sizeable and only the detail view needs it --
+# list_recent/list_with_feedback deliberately omit it to keep list payloads,
+# which poll every 10s, from ballooning with every tool call's full input/output.
+_DETAIL_COLUMNS = _COLUMNS + ["trace"]
 
 
 def _connect():
@@ -64,8 +78,8 @@ def _connect():
     return conn
 
 
-def _row_to_dict(row) -> dict:
-    return dict(zip(_COLUMNS, row))
+def _row_to_dict(row, columns=_COLUMNS) -> dict:
+    return dict(zip(columns, row))
 
 
 def start(
@@ -120,21 +134,41 @@ def find_recent_duplicate(
     return _row_to_dict(row) if row else None
 
 
-def finish(investigation_id: int, status: str, result: dict, pending_action: dict | None = None) -> None:
+def finish(
+    investigation_id: int, status: str, result: dict, pending_action: dict | None = None,
+    pending_fix_action: dict | None = None, trace: list | None = None,
+) -> None:
     """Not owner-scoped: only ever called right after start(), using the id
     start() itself just returned -- never reachable from a route with a
     user-supplied id.
 
-    pending_action, when given, overrides status to "awaiting_approval" and
-    records the not-yet-executed high-stakes write (e.g. a Jira comment) for
-    an operator to approve or dismiss via resolve_pending_action() below,
-    instead of it firing unattended the moment the loop finishes."""
-    if pending_action is not None:
+    pending_action/pending_fix_action, when given, override status to
+    "awaiting_approval" and record a not-yet-executed high-stakes write (a
+    Jira/Azure DevOps comment, or a code fix branch+PR respectively) for an
+    operator to approve or dismiss via resolve_pending_action()/
+    resolve_pending_fix_action() below, instead of it firing unattended the
+    moment the loop finishes. The two are independent -- either, both, or
+    neither may be set on a given run.
+
+    trace is the raw stream of step_start/tool_call/tool_result events (see
+    routes powering GET /api/investigate/stream), stored so the detail page
+    can replay a past run's timeline -- including a partial trace on a run
+    that errored or hit budget/step limits, which is exactly the case an
+    operator most wants to see replayed."""
+    if pending_action is not None or pending_fix_action is not None:
         status = "awaiting_approval"
     with _connect() as conn:
         conn.execute(
-            "UPDATE investigations SET status = %s, result = %s, pending_action = %s, finished_at = now() WHERE id = %s",
-            (status, json.dumps(result), json.dumps(pending_action) if pending_action else None, investigation_id),
+            "UPDATE investigations SET status = %s, result = %s, pending_action = %s, pending_fix_action = %s, trace = %s, finished_at = now() "
+            "WHERE id = %s",
+            (
+                status,
+                json.dumps(result),
+                json.dumps(pending_action) if pending_action else None,
+                json.dumps(pending_fix_action) if pending_fix_action else None,
+                json.dumps(trace) if trace is not None else None,
+                investigation_id,
+            ),
         )
 
 
@@ -186,19 +220,37 @@ def list_with_feedback(owner_user_id: int, ratings: tuple[str, ...] = ("incorrec
 def get_by_id(investigation_id: int, owner_user_id: int) -> dict | None:
     with _connect() as conn:
         row = conn.execute(
-            "SELECT {} FROM investigations WHERE id = %s AND owner_user_id = %s".format(", ".join(_COLUMNS)),
+            "SELECT {} FROM investigations WHERE id = %s AND owner_user_id = %s".format(", ".join(_DETAIL_COLUMNS)),
             (investigation_id, owner_user_id),
         ).fetchone()
-    return _row_to_dict(row) if row else None
+    return _row_to_dict(row, _DETAIL_COLUMNS) if row else None
 
 
 def resolve_pending_action(investigation_id: int, owner_user_id: int) -> dict | None:
     """Clears a pending high-stakes write (approved-and-executed, or
     dismissed -- the caller decides which by whether it actually performs
-    the action first) and moves the investigation to "done"."""
+    the action first). Only moves the investigation to "done" if
+    pending_fix_action isn't still awaiting its own approval -- see
+    resolve_pending_fix_action for the symmetric case."""
     with _connect() as conn:
         conn.execute(
-            "UPDATE investigations SET status = 'done', pending_action = NULL "
+            "UPDATE investigations SET pending_action = NULL, "
+            "status = CASE WHEN pending_fix_action IS NULL THEN 'done' ELSE 'awaiting_approval' END "
+            "WHERE id = %s AND owner_user_id = %s",
+            (investigation_id, owner_user_id),
+        )
+    return get_by_id(investigation_id, owner_user_id)
+
+
+def resolve_pending_fix_action(investigation_id: int, owner_user_id: int) -> dict | None:
+    """Clears a pending code-fix action (approved-and-executed, or
+    dismissed). Symmetric with resolve_pending_action -- only moves the
+    investigation to "done" once the ticket-comment pending_action (if any)
+    is also cleared."""
+    with _connect() as conn:
+        conn.execute(
+            "UPDATE investigations SET pending_fix_action = NULL, "
+            "status = CASE WHEN pending_action IS NULL THEN 'done' ELSE 'awaiting_approval' END "
             "WHERE id = %s AND owner_user_id = %s",
             (investigation_id, owner_user_id),
         )

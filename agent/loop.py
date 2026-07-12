@@ -83,6 +83,15 @@ def _run_agent_loop_stream(alert_text: str, owner_user_id: int, deployment_id: i
         "cache_write_tokens": 0, "cache_read_tokens": 0,
         "cost_usd": 0.0, "cost_estimated": True,
     }
+    # Paths the model has read IN FULL via get_file_contents this run --
+    # the sole source of truth fix_proposals.build_pending_fix_action() uses
+    # to decide whether a proposed_fix_files entry is safe to act on (never
+    # trust the model's say-so that it "read" a file; trust only that this
+    # loop actually saw it call the tool and get a non-error result back).
+    # Carried on every "final" event so it reaches both run_agent() and
+    # run_agent_stream() callers uniformly regardless of which of the four
+    # exit points below ends the run.
+    files_read: set[str] = set()
 
     for step in range(1, MAX_STEPS + 1):
         # An unpriced (unknown) model can't be budget-capped in USD terms;
@@ -93,6 +102,7 @@ def _run_agent_loop_stream(alert_text: str, owner_user_id: int, deployment_id: i
                 "result": f"Stopped: budget cap (${MAX_COST_PER_RUN:.2f}) reached after {step - 1} steps.",
                 "usage": usage,
                 "partial": True,
+                "files_read": sorted(files_read),
             }}
             return
 
@@ -125,7 +135,9 @@ def _run_agent_loop_stream(alert_text: str, owner_user_id: int, deployment_id: i
 
         if result["stop_reason"] != "tool_use":
             final_text = "".join(b["text"] for b in blocks if b["type"] == "text")
-            yield {"type": "final", "data": {"steps": step, "result": final_text, "usage": usage}}
+            yield {"type": "final", "data": {
+                "steps": step, "result": final_text, "usage": usage, "files_read": sorted(files_read),
+            }}
             return
 
         provider.append_assistant(messages, blocks)
@@ -171,6 +183,8 @@ def _run_agent_loop_stream(alert_text: str, owner_user_id: int, deployment_id: i
             ) as tool_span:
                 tool_result = execute_tool(block["name"], tool_args, owner_user_id)
                 tool_span.update(output=tool_result)
+            if block["name"] == "get_file_contents" and not tool_result.startswith("ERROR") and tool_args.get("path"):
+                files_read.add(tool_args["path"])
             yield {"type": "tool_result", "step": step, "name": block["name"], "result": tool_result[:500]}
 
             tool_results.append({
@@ -179,7 +193,9 @@ def _run_agent_loop_stream(alert_text: str, owner_user_id: int, deployment_id: i
             })
 
         if postmortem is not None:
-            yield {"type": "final", "data": {"steps": step, "postmortem": postmortem.model_dump(), "usage": usage}}
+            yield {"type": "final", "data": {
+                "steps": step, "postmortem": postmortem.model_dump(), "usage": usage, "files_read": sorted(files_read),
+            }}
             return
 
         provider.append_tool_results(messages, tool_results)
@@ -189,4 +205,5 @@ def _run_agent_loop_stream(alert_text: str, owner_user_id: int, deployment_id: i
         "result": "max steps reached without a final answer",
         "partial": True,
         "usage": usage,
+        "files_read": sorted(files_read),
     }}

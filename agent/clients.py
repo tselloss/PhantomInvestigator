@@ -39,6 +39,7 @@ CREATE TABLE IF NOT EXISTS deployments (
     environment TEXT NOT NULL DEFAULT 'production',
     jira_project_key TEXT,
     github_repo TEXT,
+    azure_devops_project TEXT,
     checkin_token TEXT UNIQUE,
     created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
@@ -83,13 +84,21 @@ ALTER TABLE clients ADD COLUMN IF NOT EXISTS archived_at TIMESTAMPTZ;
 ALTER TABLE clients ADD COLUMN IF NOT EXISTS owner_user_id INTEGER;
 ALTER TABLE deployments ADD COLUMN IF NOT EXISTS archived_at TIMESTAMPTZ;
 ALTER TABLE deployments ADD COLUMN IF NOT EXISTS owner_user_id INTEGER;
+ALTER TABLE deployments ADD COLUMN IF NOT EXISTS azure_devops_project TEXT;
+ALTER TABLE deployments ADD COLUMN IF NOT EXISTS allowed_base_branches JSONB;
 ALTER TABLE deployment_snapshots ADD COLUMN IF NOT EXISTS owner_user_id INTEGER;
 """
 
 _CLIENT_COLUMNS = ["id", "owner_user_id", "name", "slug", "notes", "created_at", "archived_at"]
+# allowed_base_branches: NULL/empty = auto-fix PR generation is inactive for
+# this deployment (opt-in, safe default) -- see agent/fix_proposals.py. When
+# set, it's the *only* source of truth for which branches a fix PR may
+# target; approve-fix re-checks it live rather than trusting any snapshot
+# taken at proposal time.
 _DEPLOYMENT_COLUMNS = [
     "id", "client_id", "owner_user_id", "label", "environment",
-    "jira_project_key", "github_repo", "checkin_token", "created_at", "archived_at",
+    "jira_project_key", "github_repo", "azure_devops_project", "checkin_token", "created_at", "archived_at",
+    "allowed_base_branches",
 ]
 _SNAPSHOT_COLUMNS = [
     "id", "deployment_id", "owner_user_id", "reported_at", "source",
@@ -184,18 +193,24 @@ def create_deployment(
     environment: str = "production",
     jira_project_key: str | None = None,
     github_repo: str | None = None,
+    azure_devops_project: str | None = None,
+    allowed_base_branches: list[str] | None = None,
 ) -> dict:
     """owner_user_id is denormalized from the parent client so deployment
     lookups stay single-table -- callers (routes/clients.py) validate the
     client belongs to this user via get_client() before calling this, so
     it's always the client's own owner, never taken on faith from the
-    request."""
+    request. azure_devops_project is "{organization}/{project}", the same
+    shape find_deployment_by_azure_devops_project matches on."""
     checkin_token = secrets.token_hex(16)
     with _connect() as conn:
         row = conn.execute(
-            "INSERT INTO deployments (client_id, owner_user_id, label, environment, jira_project_key, github_repo, checkin_token) "
-            "VALUES (%s, %s, %s, %s, %s, %s, %s) RETURNING {}".format(", ".join(_DEPLOYMENT_COLUMNS)),
-            (client_id, owner_user_id, label, environment, jira_project_key, github_repo, checkin_token),
+            "INSERT INTO deployments (client_id, owner_user_id, label, environment, jira_project_key, github_repo, azure_devops_project, checkin_token, allowed_base_branches) "
+            "VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s) RETURNING {}".format(", ".join(_DEPLOYMENT_COLUMNS)),
+            (
+                client_id, owner_user_id, label, environment, jira_project_key, github_repo, azure_devops_project,
+                checkin_token, json.dumps(allowed_base_branches) if allowed_base_branches is not None else None,
+            ),
         ).fetchone()
     return _row_to_dict(row, _DEPLOYMENT_COLUMNS)
 
@@ -246,12 +261,18 @@ def update_deployment(
     environment: str = "production",
     jira_project_key: str | None = None,
     github_repo: str | None = None,
+    azure_devops_project: str | None = None,
+    allowed_base_branches: list[str] | None = None,
 ) -> dict | None:
     with _connect() as conn:
         row = conn.execute(
-            "UPDATE deployments SET label = %s, environment = %s, jira_project_key = %s, github_repo = %s "
+            "UPDATE deployments SET label = %s, environment = %s, jira_project_key = %s, github_repo = %s, azure_devops_project = %s, allowed_base_branches = %s "
             "WHERE id = %s AND owner_user_id = %s RETURNING {}".format(", ".join(_DEPLOYMENT_COLUMNS)),
-            (label, environment, jira_project_key, github_repo, deployment_id, owner_user_id),
+            (
+                label, environment, jira_project_key, github_repo, azure_devops_project,
+                json.dumps(allowed_base_branches) if allowed_base_branches is not None else None,
+                deployment_id, owner_user_id,
+            ),
         ).fetchone()
     return _row_to_dict(row, _DEPLOYMENT_COLUMNS) if row else None
 
@@ -283,6 +304,18 @@ def find_deployment_by_github_repo(repo: str) -> dict | None:
         row = conn.execute(
             "SELECT {} FROM deployments WHERE github_repo = %s LIMIT 1".format(", ".join(_DEPLOYMENT_COLUMNS)),
             (repo,),
+        ).fetchone()
+    return _row_to_dict(row, _DEPLOYMENT_COLUMNS) if row else None
+
+
+def find_deployment_by_azure_devops_project(project: str) -> dict | None:
+    """Unscoped by design -- see module docstring. project is
+    "{organization}/{project}", matching what routes/webhooks.py's Azure
+    DevOps handler builds from the inbound service hook payload."""
+    with _connect() as conn:
+        row = conn.execute(
+            "SELECT {} FROM deployments WHERE azure_devops_project = %s LIMIT 1".format(", ".join(_DEPLOYMENT_COLUMNS)),
+            (project,),
         ).fetchone()
     return _row_to_dict(row, _DEPLOYMENT_COLUMNS) if row else None
 
