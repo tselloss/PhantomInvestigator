@@ -5,6 +5,7 @@ import StatusPill from "./StatusPill";
 import Threads from "./Threads";
 import Sidebar from "./Sidebar";
 import CommandPalette from "./CommandPalette";
+import TermsGate from "./TermsGate";
 import useKeyboardShortcuts from "../hooks/useKeyboardShortcuts";
 import { useAuth } from "../context/AuthContext";
 import { NAV_LINKS } from "../lib/navLinks";
@@ -78,6 +79,7 @@ export default function Layout() {
       </div>
 
       <CommandPalette open={paletteOpen} onClose={() => setPaletteOpen(false)} navLinks={NAV_LINKS} />
+      <TermsGate />
     </div>
   );
 }

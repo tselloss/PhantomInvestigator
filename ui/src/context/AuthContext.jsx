@@ -11,7 +11,7 @@ export function AuthProvider({ children }) {
       const res = await fetch("/auth/me");
       if (res.ok) {
         const data = await res.json();
-        setUser({ id: data.id, username: data.username });
+        setUser({ id: data.id, username: data.username, tosAccepted: data.tos_accepted });
       } else {
         setUser(null);
       }
@@ -39,12 +39,12 @@ export function AuthProvider({ children }) {
     return true;
   }
 
-  async function register(username, password) {
+  async function register(username, password, acceptTerms) {
     setError(null);
     const res = await fetch("/auth/register", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ username, password }),
+      body: JSON.stringify({ username, password, accept_terms: acceptTerms }),
     });
     if (!res.ok) {
       const detail = await res.json().catch(() => ({}));
@@ -60,8 +60,17 @@ export function AuthProvider({ children }) {
     setUser(null);
   }
 
+  async function acceptTerms() {
+    const res = await fetch("/auth/accept-terms", { method: "POST" });
+    if (!res.ok) return false;
+    setUser((u) => (u ? { ...u, tosAccepted: true } : u));
+    return true;
+  }
+
   return (
-    <AuthContext.Provider value={{ user, error, login, register, logout, checking: user === undefined }}>
+    <AuthContext.Provider
+      value={{ user, error, login, register, logout, acceptTerms, checking: user === undefined }}
+    >
       {children}
     </AuthContext.Provider>
   );

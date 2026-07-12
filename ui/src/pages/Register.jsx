@@ -10,6 +10,7 @@ export default function Register() {
   const location = useLocation();
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
+  const [acceptTerms, setAcceptTerms] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [shakeNonce, setShakeNonce] = useState(0);
 
@@ -20,8 +21,9 @@ export default function Register() {
 
   async function handleSubmit(e) {
     e.preventDefault();
+    if (!acceptTerms) return;
     setSubmitting(true);
-    const ok = await register(username, password);
+    const ok = await register(username, password, acceptTerms);
     setSubmitting(false);
     if (!ok) setShakeNonce((n) => n + 1);
   }
@@ -62,10 +64,25 @@ export default function Register() {
                 onChange={(e) => setPassword(e.target.value)}
               />
             </div>
+            <label className="row" style={{ gap: 8, alignItems: "flex-start", fontSize: 12.5, cursor: "pointer" }}>
+              <input
+                type="checkbox"
+                checked={acceptTerms}
+                onChange={(e) => setAcceptTerms(e.target.checked)}
+                style={{ marginTop: 2 }}
+              />
+              <span className="placeholder">
+                I have read and accept the{" "}
+                <Link to="/terms" target="_blank" rel="noopener noreferrer">
+                  Terms of Service
+                </Link>
+              </span>
+            </label>
             <Button
               variant="primary"
               type="submit"
               loading={submitting}
+              disabled={!acceptTerms}
               style={{ justifyContent: "center", marginTop: 4 }}
             >
               {submitting ? "Creating account…" : "Create account"}
