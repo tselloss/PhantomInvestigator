@@ -6,3 +6,6 @@ pgdata/
 evals/results/
 .claude/
 .pytest_cache/
+# Claude (personal, not shared)
+.claude/settings.local.json
+CLAUDE.local.md
