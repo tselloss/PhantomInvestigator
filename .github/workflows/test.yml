@@ -2,8 +2,10 @@ name: test
 
 on:
   push:
+    paths-ignore: ['**/*.md', 'docs/**', '.claude/**', '.vscode/**', 'LICENSE']
     branches: [main]
   pull_request:
+    paths-ignore: ['**/*.md', 'docs/**', '.claude/**', '.vscode/**', 'LICENSE']
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
